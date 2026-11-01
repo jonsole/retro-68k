@@ -205,8 +205,8 @@ Registers, in the system block (spec 3), `0xF00900`–`0xF00AFF`:
 ### 7.2 Loading a new design over the link
 
 1. The PC sends UPLOAD (spec 14, section 3), so the boot ROM's loader runs.
-2. The PC sends the bitstream with the upload protocol (`monitor.md`), marked as a flash image.
-3. The boot ROM erases our slot and programs it, page by page, then reads it back and checks the CRC.
+2. The PC sends the `.bit` file whole, with the upload protocol (`monitor.md`, section 6.7, TARGET 3), in order. The first data frame must carry the FPGA's IDCODE: a design for another FPGA is refused before anything is written.
+3. The boot ROM erases each 64 KB sector of the development slot as the data reaches it and programs it page by page; the link's flow control holds the PC meanwhile. At the end it reads the slot back and checks the design's CRC.
 4. Only if the check passes does it BOOT into the slot. Otherwise it reports the error over the link and keeps running the old design.
 
 The `rlink.py` command and the upload record's type are shared with retro-z80 (open point SY7).
@@ -270,7 +270,7 @@ System control registers, in the system area at `0xF00000`. Spec 3 sets the fina
 | SY4 | Which real-time clock chip the KS3 uses, and its I2C address and register layout |
 | SY5 | Mostly answered by retro-z80 from the Next's sources (section 7.1; not yet tried on a board). Installing from the SD card: `/machines/<dir>/core3.bit` on the KS3 (core2.bit on issue 4), holding C at a hard reset. Still open: which slot the Next's Extra Cores menu writes into (retro-z80's SY14) |
 | SY6 | Settled: the rescue pin starts the known-good copy, FLASHGOOD (section 7.3) |
-| SY7 | The upload record type for a flash image, and the `rlink.py` command, shared with retro-z80 |
+| SY7 | Agreed with retro-z80: the shared `monitor.md`, section 6.7 (retro-z80 commit 0f22cfe): TARGET 3 = FPGA design, always into the development slot, checked against the FPGA's IDCODE before anything is written and by its CRC after; `rlink.py flash FILE.bit [--no-boot]`. Copy it into our `monitor.md` once PR #18 has merged |
 
 ## 12. Tests
 
