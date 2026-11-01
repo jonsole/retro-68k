@@ -52,11 +52,12 @@ Instead of the FT232H, a **Raspberry Pi Zero 2 W** can sit on the accelerator po
 |------|-------|
 | Choice | A build option: the FT232H front end or the Pi front end, not both at once. Everything behind the front end is the same: the 2 KB FIFOs, the escapes and control commands (section 3), the registers, DMA port 1 |
 | Wiring | The Pi's UART: Pi GPIO 14 (TXD) to the FPGA's receiver, GPIO 15 (RXD) from its transmitter. Flow control on GPIO 16 (CTS, from the FPGA) and GPIO 17 (RTS, from the Pi) |
-| Format | 8 data bits, no parity, 1 stop bit, at about 3–4 Mbaud (a rate the Pi's UART makes exactly; open point U7). About 300–400 KB/s each way |
+| Format | 8 data bits, no parity, 1 stop bit, at 3 Mbaud to start: exact on the Pi's PL011 UART at its default 48 MHz clock, and 100 MHz / 33 on our side (1% fast, well inside a UART's tolerance). 4 Mbaud later, with the Pi's `init_uart_clock=64000000` (open point U7). About 300 KB/s each way |
 | Flow control | The FPGA holds CTS high (stop) while its receive FIFO has fewer than 64 bytes free, so nothing from the Pi is lost. It sends only while RTS is low |
 | Power | From the accelerator port's 5 V pins. The Pi takes up to about 300 mA (open point U9) |
 | On the PC | `rlink.py` and the bridge connect with `tcp:HOST:PORT` instead of a serial port. The Pi passes bytes through unchanged; the PC escapes as usual |
-| Rescue pin | A spare Pi GPIO, held low by the Pi, restarts the FPGA from the flash even when the link has stopped working (spec 7, section 7.3) |
+| Pins | `accel_io[n]` is Pi GPIO n (from the Next's top level, checked by retro-z80 on its board's schematic). So the UART is `accel_io[14]`/`[15]`, CTS and RTS `[16]`/`[17]`: the same pins the Next uses for its own Pi UART |
+| Rescue pin | Pi GPIO 4 (`accel_io[4]`), held low by the Pi, restarts the FPGA from the flash even when the link has stopped working (spec 7, section 7.3) |
 
 The UART has no low-delay signal: the Pi forwards bytes as they arrive.
 
@@ -151,8 +152,8 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 | U3 | Settled: the upload protocol is in the shared spec `monitor.md`, and the control commands and escapes (section 3) are agreed with retro-z80 |
 | U4 | Should the link offer several logical channels (e.g. console and debugger at once)? For now software can share the one stream |
 | U5 | Synchronous 245 FIFO mode (up to about 40 MB/s): needs the FT232H's 60 MHz CLKOUT and OE# on two more accelerator-port pins |
-| U7 | The Pi link's exact baud rate (one the Pi's UART and our clock both make exactly) |
-| U8 | Which `accel_io` bits are Pi GPIO 14–17 and the rescue pin. The Next's pin file names the pins `accel_io[0..27]` without Pi GPIO numbers; the Next's own top level, which wires its Pi UART, would tell. Agree with retro-z80 |
+| U7 | Try 4 Mbaud (the Pi's UART clock at 64 MHz) once 3 Mbaud works |
+| U8 | Settled: `accel_io[n]` is Pi GPIO n; the UART and flow control on 14–17 and the rescue pin on 4, agreed with retro-z80 |
 | U9 | Whether the accelerator port's 5 V can power a Pi Zero 2 W (up to about 300 mA) |
 | U6 | Which `accel_io` pins carry the 13 signals, and which FT232H module to recommend (pin order, how it plugs onto the Pi header). Provisional in the KS3 build: `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# |
 
