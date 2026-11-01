@@ -2,13 +2,13 @@
 
 Status: **draft for review**
 
-The USB serial link connects the computer to a PC through a small FT232H USB module plugged onto the KS3's accelerator port. It carries the console (text in and out), program and file uploads, and debug commands. On the PC it appears as an ordinary serial port, so any terminal program works.
+The USB serial link connects the computer to a PC through a small FT232H USB module plugged onto the KS3's accelerator port, or over Wi-Fi through a Raspberry Pi Zero 2 W in the same place (section 2.1). It carries the console (text in and out), program and file uploads, and debug commands. On the PC it appears as an ordinary serial port, so any terminal program works.
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
-| Hardware | An **FT232H USB module** (e.g. FTDI UM232H-B or an FT232H breakout board) on the KS3's accelerator port (`accel_io`, 3.3 V), wired to the FPGA as an 8-bit parallel FIFO. The module is powered from its own USB cable |
+| Hardware | An **FT232H USB module** (e.g. FTDI UM232H-B or an FT232H breakout board) on the KS3's accelerator port (`accel_io`, 3.3 V), wired to the FPGA as an 8-bit parallel FIFO. The module is powered from its own USB cable. Or, as a build option, a **Raspberry Pi Zero 2 W** on the same port, linked by a UART and reached over Wi-Fi (section 2.1) |
 | On the PC | A normal serial port (e.g. `/dev/ttyUSB1` or `COM5`). The baud rate setting is ignored |
 | Speed | Several MB/s each way (the FT232H's asynchronous FIFO mode allows up to about 8 MB/s; the PC side usually sets the real limit) |
 | Flow control | Automatic in hardware, both ways: no data is ever lost and no XON/XOFF or RTS/CTS is needed |
@@ -41,6 +41,24 @@ The FT232H runs in **asynchronous 245 FIFO mode**. Its EEPROM must be set for th
 **Later, faster:** the FT232H also has a **synchronous 245 FIFO mode**, up to about 40 MB/s. It needs two more signals, the module's 60 MHz clock output (CLKOUT) and OE#. The accelerator port has pins to spare, so this can be added later without new hardware (open point U5).
 
 **Without the module:** the KS3's ESP8266 WiFi module is wired to the FPGA by a UART. It could carry a slow console (a few hundred KB/s at most) if no FT232H is fitted. Not planned for version 1.
+
+### 2.1 The Pi link: a second front end
+
+> **Draft, shared with retro-z80** (decided there 1 November 2026). Not built yet.
+
+Instead of the FT232H, a **Raspberry Pi Zero 2 W** can sit on the accelerator port (it is a Raspberry Pi header). The Pi joins the user's Wi-Fi and relays a TCP connection to the FPGA over a UART. The PC then reaches the computer over the network, with the case closed: console, uploads, the debug monitor, and new FPGA designs (spec 7, section 7.2).
+
+| Item | Value |
+|------|-------|
+| Choice | A build option: the FT232H front end or the Pi front end, not both at once. Everything behind the front end is the same: the 2 KB FIFOs, the escapes and control commands (section 3), the registers, DMA port 1 |
+| Wiring | The Pi's UART: Pi GPIO 14 (TXD) to the FPGA's receiver, GPIO 15 (RXD) from its transmitter. Flow control on GPIO 16 (CTS, from the FPGA) and GPIO 17 (RTS, from the Pi) |
+| Format | 8 data bits, no parity, 1 stop bit, at about 3–4 Mbaud (a rate the Pi's UART makes exactly; open point U7). About 300–400 KB/s each way |
+| Flow control | The FPGA holds CTS high (stop) while its receive FIFO has fewer than 64 bytes free, so nothing from the Pi is lost. It sends only while RTS is low |
+| Power | From the accelerator port's 5 V pins. The Pi takes up to about 300 mA (open point U9) |
+| On the PC | `rlink.py` and the bridge connect with `tcp:HOST:PORT` instead of a serial port. The Pi passes bytes through unchanged; the PC escapes as usual |
+| Rescue pin | A spare Pi GPIO, held low by the Pi, restarts the FPGA from the flash even when the link has stopped working (spec 7, section 7.3) |
+
+The UART has no low-delay signal: the Pi forwards bytes as they arrive.
 
 ## 3. Control commands from the PC
 
@@ -133,6 +151,9 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 | U3 | Settled: the upload protocol is in the shared spec `monitor.md`, and the control commands and escapes (section 3) are agreed with retro-z80 |
 | U4 | Should the link offer several logical channels (e.g. console and debugger at once)? For now software can share the one stream |
 | U5 | Synchronous 245 FIFO mode (up to about 40 MB/s): needs the FT232H's 60 MHz CLKOUT and OE# on two more accelerator-port pins |
+| U7 | The Pi link's exact baud rate (one the Pi's UART and our clock both make exactly) |
+| U8 | Which `accel_io` bits are Pi GPIO 14–17 and the rescue pin. The Next's pin file names the pins `accel_io[0..27]` without Pi GPIO numbers; the Next's own top level, which wires its Pi UART, would tell. Agree with retro-z80 |
+| U9 | Whether the accelerator port's 5 V can power a Pi Zero 2 W (up to about 300 mA) |
 | U6 | Which `accel_io` pins carry the 13 signals, and which FT232H module to recommend (pin order, how it plugs onto the Pi header). Provisional in the KS3 build: `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# |
 
 ## 8. Tests
@@ -144,3 +165,4 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 - **Interrupts:** RXREADY, RXTIMEOUT, TXREADY and TXOVF at their thresholds.
 - **DMA:** port 1 transfers in both directions at full speed.
 - **Latency:** a single byte sent by the computer reaches the PC in well under 16 ms.
+- **Pi link:** in simulation, a UART model at the chosen rate: loopback, escapes and commands, and CTS holding the sender when the receive FIFO is nearly full. On the board, a loopback through the Pi relay.

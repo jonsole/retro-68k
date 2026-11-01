@@ -169,13 +169,54 @@ A transfer of a few bytes to the clock takes well under a millisecond, so no int
 The Next keeps several FPGA designs ("cores") in its configuration flash, in slots. Slot 0 holds the anti-brick core and slot 1 the Next itself. **Those two slots are never touched.**
 
 - **Development:** the design is loaded straight into the FPGA over the board's JTAG header, with Vivado (or openFPGALoader) and a JTAG cable. Nothing is written to the flash; turning the power off brings back the normal Next.
+- **Over the link:** with the Pi link (spec 14, section 2.1), a new design is written into our own flash slot over Wi-Fi and the FPGA restarts into it, with no JTAG and the case closed (section 7.2).
 - **Everyday use:** the design is installed as an extra Next core in a free flash slot, and started from the Next's core menu. The exact KS3 core file format and slot size are to be confirmed (open point SY5): an XC7A35T image is about 2.2 MB, bigger than the 512 KB slots documented for the older Spartan-6 boards.
+
+> Sections 7.1–7.3 are a **draft, shared with retro-z80** (decided there 1 November 2026). Not built yet; the addresses wait for SY5.
+
+### 7.1 The flash writer
+
+A small unit in the FPGA reads, erases and programs the configuration flash, and restarts the FPGA. It drives the flash's clock through the STARTUPE2 primitive, and its chip select and data lines on their own pins. Software sees a 256-byte page buffer and a few commands; the unit sends the flash's own commands (write enable, erase, page program, read, status polling) itself.
+
+**Slots 0 and 1 are guarded in hardware.** FLASHMIN, fixed when the design is built, is the start of our own slot. ERASE and PROGRAM below FLASHMIN are refused and set DENIED, so no software bug or bad upload can damage the anti-brick core or the Next. READ and BOOT work anywhere.
+
+| Command | What it does |
+|---------|--------------|
+| READ | Read the 256 bytes at FLASHADDR into the page buffer |
+| ERASE | Erase the 64 KB sector at FLASHADDR (its low 16 bits are ignored) |
+| PROGRAM | Write the page buffer to the 256-byte page at FLASHADDR (its low 8 bits are ignored). The page must have been erased |
+| BOOT | Restart the FPGA from the design at FLASHADDR (ICAPE2: WBSTAR = FLASHADDR, then IPROG). Everything stops; the new design starts with a power-on reset |
+
+Registers, in the system block (spec 3), `0xF00900`–`0xF00AFF`:
+
+| Offset | Name | Bits | Meaning |
+|--------|------|------|---------|
+| `0x900` | FLASHADDR | 23–0 | Byte address in the flash |
+| `0x904` | FLASHCMD | KEY (31–16), CMD (2–0) | Write CMD 1 READ, 2 ERASE, 3 PROGRAM, 4 BOOT, with KEY = `0xF1A5`; any other KEY is ignored. Ignored while BUSY |
+| `0x908` | FLASHSTAT | BUSY (0), DENIED (1) | BUSY: a command is running (an erase takes up to a few hundred ms). DENIED: the last ERASE or PROGRAM was below FLASHMIN and was not done |
+| `0x90C` | FLASHMIN | 23–0 | Read only: the start of our slot |
+| `0xA00`–`0xAFF` | FLASHBUF | | The 256-byte page buffer, read and write. The DMA engine can fill it straight from the link (spec 11, port 1) |
+
+### 7.2 Loading a new design over the link
+
+1. The PC sends UPLOAD (spec 14, section 3), so the boot ROM's loader runs.
+2. The PC sends the bitstream with the upload protocol (`monitor.md`), marked as a flash image.
+3. The boot ROM erases our slot and programs it, page by page, then reads it back and checks the CRC.
+4. Only if the check passes does it BOOT into the slot. Otherwise it reports the error over the link and keeps running the old design.
+
+The `rlink.py` command and the upload record's type are shared with retro-z80 (open point SY7).
+
+### 7.3 The rescue pin
+
+If a new design does not start, or its link has stopped working, the Pi holds the rescue pin low for at least 1 second. A small block that depends on neither the CPU nor the link then does a BOOT itself. The pin is debounced, and ignored for 2 seconds after the FPGA starts, so a Pi still holding it after the restart does not cause a loop.
+
+Which design the rescue pin starts is open point SY6: address 0 (the board's normal start, the anti-brick core and boot loader, which always works but may need the core menu to come back to us), or a second, known-good copy of our design.
 
 ## 8. Board connections
 
 | Connection | Use |
 |------------|-----|
-| Accelerator port (28 pins, Raspberry Pi header) | The FT232H USB serial module (spec 14). Remaining pins free |
+| Accelerator port (28 pins, Raspberry Pi header) | The FT232H USB serial module, or a Raspberry Pi Zero 2 W as the link and rescue pin (spec 14, section 2.1). Remaining pins free |
 | HDMI and VGA | Video (spec 4) |
 | Audio jack and internal speaker | Audio (spec 6) |
 | SD card slot | Storage (spec 15) |
@@ -214,6 +255,7 @@ System control registers, in the system area at `0xF00000`. Spec 3 sets the fina
 | Boot ROM, 32 KB | 16 block RAMs (already in the design plan's budget) |
 | Reset control, overlay decode, button debounce, system registers | Estimate 100–200 LUTs |
 | I2C master | Estimate 80–150 LUTs |
+| Flash writer, page buffer, rescue pin (section 7) | Estimate 150–250 LUTs, and the page buffer in distributed RAM |
 
 ## 11. Open points
 
@@ -223,11 +265,14 @@ System control registers, in the system area at `0xF00000`. Spec 3 sets the fina
 | SY2 | The boot ROM spec: monitor commands, upload protocol (with spec 14), boot file name and format, background colour codes |
 | SY3 | Should a long press of the reset button (e.g. 3 seconds) reset into UPLOAD? |
 | SY4 | Which real-time clock chip the KS3 uses, and its I2C address and register layout |
-| SY5 | The KS3 core file format and flash slot size, and how a core is installed from the SD card |
+| SY5 | The KS3 core file format and flash slot size, and how a core is installed from the SD card. Also: the flash part, its sector size, the slot addresses (FLASHMIN), and the pins of the flash's data lines |
+| SY6 | Which design the rescue pin starts: address 0, or a second known-good copy of ours (section 7.3) |
+| SY7 | The upload record type for a flash image, and the `rlink.py` command, shared with retro-z80 |
 
 ## 12. Tests
 
 - **Each reset source** resets the CPU and hardware and sets the right RESETWHY bit.
+- **Flash writer** (simulation, with a SPI flash model): READ, ERASE and PROGRAM; ERASE and PROGRAM below FLASHMIN refused with DENIED and nothing sent to the flash; a wrong KEY ignored; BOOT drives ICAPE2 with the right WBSTAR. On the board: load a design over the Pi link and boot it; a bad CRC keeps the old one; the rescue pin brings the board back.
 - **Memory survives:** write a pattern to Chip RAM, reset by each non-power source, check the pattern is still there.
 - **Overlay:** after reset, reads at 0 come from ROM and writes go to RAM; clearing OVERLAY shows the written RAM; DMA always sees RAM.
 - **RESET instruction:** resets the hardware but not the CPU, overlay, watchdog or time counter.
