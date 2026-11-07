@@ -42,6 +42,8 @@ jobs:
         run: make -C sim run ARGS=+serial
       - name: Boot ROM test with the DMA port busy
         run: make -C sim run ARGS=+dma
+      - name: USB link on its own - escapes and control commands
+        run: make -C sim serial
       - name: The 68000 RESET instruction resets the devices, not the CPU
         run: make -C sim rtest
 

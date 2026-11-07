@@ -5,7 +5,7 @@
 //   +frame      after PASS, wait for one more frame and write it to frame.ppm
 //               and the video state to vstate/ (for vmodel.py)
 //   +rom=FILE   load FILE into the boot ROM instead of boot.hex
-//   +serial     after PASS: echo test (with a near-miss of the control
+//   +serial     after PASS: echo test (with escapes, a broken control
 //               sequence), then the RESET control command; expects a second PASS
 `timescale 1ns/1ps
 module tb;
@@ -254,17 +254,22 @@ module tb;
     end
 
     // ---------------------------------------------------------------- serial test
-    // The near-miss must come back unchanged; the full sequence must not appear.
+    // The escapes come back as the bytes they stand for, a broken command is
+    // dropped, and a last byte of 0x00 is not held back (spec 14, section 3).
     event start_serial;
     reg [7:0] echo_exp [0:15];
     integer   n_echo = 0, j, serial_errors = 0;
     task push(input [7:0] b); begin ft.send(b); echo_exp[n_echo] = b; n_echo = n_echo + 1; end endtask
+    task expect_echo(input [7:0] b); begin echo_exp[n_echo] = b; n_echo = n_echo + 1; end endtask
     initial begin
         @(start_serial);
         #2000;
-        $display("\n%t PC: sending text with a near-miss of the control sequence", $realtime);
-        push("H"); push("i"); push(8'h00); push(8'hFF); push("R"); push("6"); push("!");
-        push(8'h00); push(8'hFF); push("R"); push("6"); push("8"); push("K"); push("?");
+        $display("\n%t PC: sending text with escapes and a broken control command", $realtime);
+        push("H"); push("i");
+        ft.send(8'hDB); ft.send(8'hDC); expect_echo(8'hC0);     // an escaped C0
+        ft.send(8'hDB); ft.send(8'hDD); expect_echo(8'hDB);     // an escaped DB
+        ft.send(8'hC0); ft.send(8'h05); ft.send(8'hFA);          // no such command: dropped
+        push("!"); push(8'h00);                                  // the last byte 0x00: not held back
         wait_out(echo_at + n_echo, 5000);       // each echoed byte is also drawn on the bitmap console
         for (j = 0; j < n_echo; j = j + 1)
             if (ft.from_fpga[echo_at + j] !== echo_exp[j]) begin
@@ -290,14 +295,9 @@ module tb;
             for (w = 0; w < us && ft.nout < n; w = w + 1) #1000;
         end
     endtask
-    task send_ctl(input [7:0] c);
-        integer m;
+    task send_ctl(input [7:0] c);   // C0 c ~c (spec 14, section 3)
         begin
-            for (m = 0; m < 14; m = m + 1)
-                ft.send(m == 0 ? 8'h00 : m == 1 ? 8'hFF : m == 2 ? "R" : m == 3 ? "6" : m == 4 ? "8" : m == 5 ? "K" :
-                        m == 6 ? "-" : m == 7 ? "C" : m == 8 ? "T" : m == 9 ? "L" : m == 10 ? 8'hFF : m == 11 ? 8'h00 :
-                        m == 12 ? 8'hA5 : 8'h5A);
-            ft.send(c); ft.send(~c);
+            ft.send(8'hC0); ft.send(c); ft.send(~c);
         end
     endtask
 

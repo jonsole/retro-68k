@@ -151,26 +151,19 @@ module serial (
         endcase
     end
 
-    // ---------------------------------------------------------------- control commands
-    // 00 FF "R68K-CTL" FF 00 A5 5A c ~c (section 3). Matching bytes are held
-    // back; on a mismatch they are passed on (they are known constants).
-    function [7:0] pattern(input [3:0] i);
-        case (i)
-            4'd0: pattern = 8'h00;  4'd1: pattern = 8'hFF;  4'd2: pattern = 8'h52;  4'd3: pattern = 8'h36;
-            4'd4: pattern = 8'h38;  4'd5: pattern = 8'h4B;  4'd6: pattern = 8'h2D;  4'd7: pattern = 8'h43;
-            4'd8: pattern = 8'h54;  4'd9: pattern = 8'h4C;  4'd10: pattern = 8'hFF; 4'd11: pattern = 8'h00;
-            4'd12: pattern = 8'hA5; 4'd13: pattern = 8'h5A; default: pattern = 8'h00;
-        endcase
-    endfunction
+    // ---------------------------------------------------------------- control commands and escapes
+    // With recognition on (CTLEN or CTLLOCK) the PC's bytes are SLIP-style
+    // (section 3): C0 c ~c is a control command, DB DC a data C0, DB DD a data
+    // DB. Every other byte goes on at once, so no data byte waits for the next
+    // one. A broken command is dropped; a C0 always starts a command again.
+    // (The same as retro-z80's serial.v, which found that the old 16-byte
+    // matcher held back a frame's last byte when it was 0x00.)
+    localparam [7:0] B_END = 8'hC0, B_ESC = 8'hDB, B_ESC_END = 8'hDC, B_ESC_ESC = 8'hDD;
+    localparam [1:0] D_DATA = 2'd0, D_ESC = 2'd1, D_CMD = 2'd2, D_INV = 2'd3;
 
     wire        match_on = sercon[1] || sercon[2];
-    reg  [3:0]  mk;            // bytes matched so far (0-15)
-    reg  [7:0]  mc;            // the command byte, once matched
-    reg  [4:0]  flush_n;       // held bytes still to pass on
-    reg  [4:0]  flush_i;
-    reg         flush_cur;     // then the byte that broke the match
-    reg  [7:0]  cur;
-    wire        busy = (flush_n != 0) || flush_cur;
+    reg  [1:0]  ds;
+    reg  [7:0]  mc;            // the command byte
 
     reg         in_valid;      // a byte from the FT232H
     reg  [7:0]  in_byte;
@@ -181,37 +174,34 @@ module serial (
         cmd_reset  <= 1'b0;
         cmd_upload <= 1'b0;
         if (rst) begin
-            mk <= 0; flush_n <= 0; flush_i <= 0; flush_cur <= 1'b0;
-        end else if (flush_n != 0) begin
-            rx_push  <= 1'b1;
-            rx_wdata <= (flush_i == 5'd14) ? mc : pattern(flush_i[3:0]);
-            flush_i  <= flush_i + 1'b1;
-            flush_n  <= flush_n - 1'b1;
-        end else if (flush_cur) begin
-            flush_cur <= 1'b0;
-            if (cur == pattern(0)) mk <= 4'd1;
-            else begin rx_push <= 1'b1; rx_wdata <= cur; end
+            ds <= D_DATA;
         end else if (in_valid) begin
             if (!match_on) begin
                 rx_push <= 1'b1; rx_wdata <= in_byte;
-            end else if (mk < 4'd14 && in_byte == pattern(mk)) begin
-                mk <= mk + 1'b1;
-            end else if (mk == 4'd14) begin
-                mk <= 4'd15;
-                mc <= in_byte;
-            end else if (mk == 4'd15 && in_byte == ~mc && mc >= 8'd1 && mc <= 8'd3) begin
-                mk <= 4'd0;
-                cmd_break  <= (mc == 8'd1) && sercon[1];
-                cmd_reset  <= (mc == 8'd2);
-                cmd_upload <= (mc == 8'd3);
-            end else begin
-                // Mismatch: pass on the held bytes, then look at this one again
-                flush_n   <= {1'b0, mk};
-                flush_i   <= 5'd0;
-                flush_cur <= 1'b1;
-                cur       <= in_byte;
-                mk        <= 4'd0;
-            end
+                ds <= D_DATA;
+            end else if (in_byte == B_END) begin
+                ds <= D_CMD;
+            end else case (ds)
+                D_DATA: if (in_byte == B_ESC) ds <= D_ESC;
+                        else begin rx_push <= 1'b1; rx_wdata <= in_byte; end
+                D_ESC: begin
+                    rx_push  <= 1'b1;
+                    rx_wdata <= (in_byte == B_ESC_END) ? B_END : (in_byte == B_ESC_ESC) ? B_ESC : in_byte;
+                    ds       <= D_DATA;
+                end
+                D_CMD: begin
+                    mc <= in_byte;
+                    ds <= D_INV;
+                end
+                default: begin   // D_INV
+                    ds <= D_DATA;
+                    if (in_byte == ~mc && mc >= 8'd1 && mc <= 8'd3) begin
+                        cmd_break  <= (mc == 8'd1) && sercon[1];
+                        cmd_reset  <= (mc == 8'd2);
+                        cmd_upload <= (mc == 8'd3);
+                    end
+                end
+            endcase
         end
     end
 
@@ -233,7 +223,7 @@ module serial (
     reg [3:0] ft_t;
     reg       sent;            // bytes went out since the last send-immediate
     reg [1:0] siwu_t;
-    wire      rx_room = (rx_count < 13'd2030) && !busy && !in_valid;
+    wire      rx_room = (rx_count < 13'd2030) && !in_valid;
 
     always @(posedge clk) begin
         in_valid  <= 1'b0;
