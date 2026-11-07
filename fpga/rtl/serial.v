@@ -1,4 +1,6 @@
-// USB serial through an FT232H in asynchronous 245 FIFO mode (spec 14).
+// USB serial through an FT232H in asynchronous 245 FIFO mode (spec 14):
+// retro68k's registers on retro-hw's serial_link (FIFOs and the command
+// decoder) and ft232h_if (the FT232H pins). See fpga/retro-hw/docs/spec.
 `include "regmap.vh"
 
 module serial (
@@ -14,9 +16,9 @@ module serial (
     output reg  [31:0] rb_rdata,
 
     output wire        irq,
-    output reg         cmd_break,      // 1 clock each: control commands from the PC
-    output reg         cmd_reset,
-    output reg         cmd_upload,
+    output wire        cmd_break,      // 1 clock each: control commands from the PC
+    output wire        cmd_reset,
+    output wire        cmd_upload,
 
     // DMA engine port 1 (spec 11, section 4): the CPU's own accesses go first
     output wire        p_rxv,
@@ -30,11 +32,11 @@ module serial (
     input  wire        ft_rxf_n,
     input  wire        ft_txe_n,
     input  wire [7:0]  ft_d_i,
-    output reg  [7:0]  ft_d_o,
-    output reg         ft_d_oe,
-    output reg         ft_rd_n,
-    output reg         ft_wr_n,
-    output reg         ft_siwu_n
+    output wire [7:0]  ft_d_o,
+    output wire        ft_d_oe,
+    output wire        ft_rd_n,
+    output wire        ft_wr_n,
+    output wire        ft_siwu_n
 );
     // ---------------------------------------------------------------- registers
     wire [15:0] off = {rb_addr[15:2], 2'b00};
@@ -49,37 +51,47 @@ module serial (
 
     wire en = sercon[0];
 
-    // ---------------------------------------------------------------- FIFOs
-    reg         rx_push;  reg [7:0] rx_wdata;
+    // ---------------------------------------------------------------- the engine
     wire        rx_cpu = rb_rd && sel && off == `RM_SERDATA && rb_be[0];   // the low half takes a byte
     wire        rx_pop = rx_cpu || p_rxpop;
-    wire [7:0]  rx_rdata;
-    wire [12:0] rx_count;
-    wire        rx_full, rx_valid;
-    fifo8 #(.AW(11)) rx_fifo (.clk(clk), .rst(rst), .push(rx_push), .wdata(rx_wdata),
-                          .pop(rx_pop), .rdata(rx_rdata), .count(rx_count), .full(rx_full),
-                          .valid(rx_valid));
+    wire        tx_cpu = rb_wr && sel && off == `RM_SERDATA && rb_be[0];
+    wire        tx_wr  = tx_cpu || p_txpush;
 
-    wire        tx_cpu  = rb_wr && sel && off == `RM_SERDATA && rb_be[0];
-    wire        tx_wr   = tx_cpu || p_txpush;
-    reg         tx_pop_ft;
-    wire [7:0]  tx_rdata;
-    wire [12:0] tx_count;
-    wire        tx_full, tx_valid;
-    wire        tx_drop = tx_wr && tx_full && sercon[3];
-    fifo8 #(.AW(11)) tx_fifo (.clk(clk), .rst(rst), .push(tx_wr && en), .wdata(tx_cpu ? rb_wdata[7:0] : p_txd),
-                          .pop(tx_pop_ft || tx_drop), .rdata(tx_rdata), .count(tx_count), .full(tx_full),
-                          .valid(tx_valid));
+    wire        fe_rx_valid, fe_rx_room, fe_tx_valid, fe_tx_pop, fe_tx_empty;
+    wire [7:0]  fe_rx_byte, fe_tx_byte;
+    wire        rx_valid, rx_new, tx_full, tx_dropped;
+    wire [7:0]  rx_rdata;
+    wire [11:0] rx_count, tx_space;
+
+    serial_link #(.AW(11), .RX_MARGIN(18), .KEY_CMD(0)) link (
+        .clk(clk), .rst(rst), .rx_clear(rst), .tx_clear(rst),
+        .ctl_en(sercon[1]), .ctl_lock(sercon[2]), .tx_en(en), .drop_oldest(sercon[3]),
+        .fe_rx_valid(fe_rx_valid), .fe_rx_byte(fe_rx_byte), .fe_rx_room(fe_rx_room),
+        .fe_tx_valid(fe_tx_valid), .fe_tx_byte(fe_tx_byte), .fe_tx_pop(fe_tx_pop),
+        .fe_tx_empty(fe_tx_empty),
+        .rx_valid(rx_valid), .rx_byte(rx_rdata), .rx_pop(rx_pop), .rx_new(rx_new),
+        .rx_count(rx_count),
+        .tx_push(tx_wr), .tx_byte(tx_cpu ? rb_wdata[7:0] : p_txd), .tx_full(tx_full),
+        .tx_dropped(tx_dropped), .tx_space(tx_space),
+        .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
+        .cmd_key(), .key_byte()
+    );
+
+    ft232h_if fe (
+        .clk(clk), .rst(rst), .en(en),
+        .rx_valid(fe_rx_valid), .rx_byte(fe_rx_byte), .rx_room(fe_rx_room),
+        .tx_valid(fe_tx_valid), .tx_byte(fe_tx_byte), .tx_pop(fe_tx_pop), .tx_empty(fe_tx_empty),
+        .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
+        .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
+    );
 
     assign p_rxv = rx_valid && !rx_cpu;
     assign p_rxd = rx_rdata;
     assign p_txr = en && !tx_full && !tx_cpu;
-    wire [11:0] rxcount = (rx_count > 13'd2048) ? 12'd2048 : rx_count[11:0];
-    wire [11:0] txspace = (tx_count >= 13'd2048) ? 12'd0 : 12'd2048 - tx_count[11:0];
 
     // ---------------------------------------------------------------- interrupts
-    wire s_rxready = (rxlevel != 0) && (rxcount >= rxlevel);
-    wire s_txready = (txlevel != 0) && (txspace >= txlevel);
+    wire s_rxready = (rxlevel != 0) && (rx_count >= rxlevel);
+    wire s_txready = (txlevel != 0) && (tx_space >= txlevel);
     wire [3:0] irqflags = {f_txovf, s_txready, f_rxtimeout, s_rxready};
     assign irq = |(irqflags & irqen);
 
@@ -104,9 +116,9 @@ module serial (
             idle_us     <= 16'd0;
         end else begin
             if (tx_wr && tx_full && !sercon[3]) f_txovf <= 1'b1;
-            if (tx_drop) dropcount <= dropcount + 1'b1;
+            if (tx_dropped) dropcount <= dropcount + 1'b1;
 
-            if (rx_push || rx_pop || rxcount == 0 || s_rxready) idle_us <= 16'd0;
+            if (rx_new || rx_pop || rx_count == 0 || s_rxready) idle_us <= 16'd0;
             else if (us_tick && idle_us != 16'hFFFF) idle_us <= idle_us + 1'b1;
             if (sertime != 0 && idle_us == sertime && us_tick) f_rxtimeout <= 1'b1;
 
@@ -140,7 +152,7 @@ module serial (
         rb_rdata <= 32'd0;
         if (rb_rd && sel) case (off)
             `RM_SERCON:   rb_rdata <= {28'd0, sercon};
-            `RM_SERSTAT:  rb_rdata <= {4'd0, rxcount, 4'd0, txspace};
+            `RM_SERSTAT:  rb_rdata <= {4'd0, rx_count, 4'd0, tx_space};
             `RM_SERDATA:  rb_rdata <= rx_valid ? {24'd0, rx_rdata} : 32'h100;
             `RM_SERLEVEL: rb_rdata <= {4'd0, rxlevel, 4'd0, txlevel};
             `RM_SERTIME:  rb_rdata <= {16'd0, sertime};
@@ -149,143 +161,5 @@ module serial (
             `RM_SERDROP:  rb_rdata <= {16'd0, dropcount};
             default: ;
         endcase
-    end
-
-    // ---------------------------------------------------------------- control commands and escapes
-    // With recognition on (CTLEN or CTLLOCK) the PC's bytes are SLIP-style
-    // (section 3): C0 c ~c is a control command, DB DC a data C0, DB DD a data
-    // DB. Every other byte goes on at once, so no data byte waits for the next
-    // one. A broken command is dropped; a C0 always starts a command again.
-    // (The same as retro-z80's serial.v, which found that the old 16-byte
-    // matcher held back a frame's last byte when it was 0x00.)
-    localparam [7:0] B_END = 8'hC0, B_ESC = 8'hDB, B_ESC_END = 8'hDC, B_ESC_ESC = 8'hDD;
-    localparam [1:0] D_DATA = 2'd0, D_ESC = 2'd1, D_CMD = 2'd2, D_INV = 2'd3;
-
-    wire        match_on = sercon[1] || sercon[2];
-    reg  [1:0]  ds;
-    reg  [7:0]  mc;            // the command byte
-
-    reg         in_valid;      // a byte from the FT232H
-    reg  [7:0]  in_byte;
-
-    always @(posedge clk) begin
-        rx_push    <= 1'b0;
-        cmd_break  <= 1'b0;
-        cmd_reset  <= 1'b0;
-        cmd_upload <= 1'b0;
-        if (rst) begin
-            ds <= D_DATA;
-        end else if (in_valid) begin
-            if (!match_on) begin
-                rx_push <= 1'b1; rx_wdata <= in_byte;
-                ds <= D_DATA;
-            end else if (in_byte == B_END) begin
-                ds <= D_CMD;
-            end else case (ds)
-                D_DATA: if (in_byte == B_ESC) ds <= D_ESC;
-                        else begin rx_push <= 1'b1; rx_wdata <= in_byte; end
-                D_ESC: begin
-                    rx_push  <= 1'b1;
-                    rx_wdata <= (in_byte == B_ESC_END) ? B_END : (in_byte == B_ESC_ESC) ? B_ESC : in_byte;
-                    ds       <= D_DATA;
-                end
-                D_CMD: begin
-                    mc <= in_byte;
-                    ds <= D_INV;
-                end
-                default: begin   // D_INV
-                    ds <= D_DATA;
-                    if (in_byte == ~mc && mc >= 8'd1 && mc <= 8'd3) begin
-                        cmd_break  <= (mc == 8'd1) && sercon[1];
-                        cmd_reset  <= (mc == 8'd2);
-                        cmd_upload <= (mc == 8'd3);
-                    end
-                end
-            endcase
-        end
-    end
-
-    // ---------------------------------------------------------------- FT232H
-    // RXF# and TXE# are asynchronous: two-flop synchronisers.
-    reg [1:0] rxf_s, txe_s;
-    always @(posedge clk) begin
-        rxf_s <= {rxf_s[0], ft_rxf_n};
-        txe_s <= {txe_s[0], ft_txe_n};
-    end
-    wire rxf = !rxf_s[1];
-    wire txe = !txe_s[1];
-
-    // Read : RD# low 8 clocks (80 ns), data taken at the end, then 8 clocks high.
-    // Write: data out; WR# high 3 clocks, low 5 clocks (the FT232H takes the
-    //        byte as WR# falls), then data released and 8 clocks of recovery.
-    localparam F_IDLE = 2'd0, F_READ = 2'd1, F_WRITE = 2'd2, F_REC = 2'd3;
-    reg [1:0] fs;
-    reg [3:0] ft_t;
-    reg       sent;            // bytes went out since the last send-immediate
-    reg [1:0] siwu_t;
-    wire      rx_room = (rx_count < 13'd2030) && !in_valid;
-
-    always @(posedge clk) begin
-        in_valid  <= 1'b0;
-        tx_pop_ft <= 1'b0;
-        if (rst) begin
-            fs        <= F_IDLE;
-            ft_rd_n   <= 1'b1;
-            ft_wr_n   <= 1'b1;
-            ft_d_oe   <= 1'b0;
-            ft_siwu_n <= 1'b1;
-            sent      <= 1'b0;
-            siwu_t    <= 2'd0;
-        end else begin
-            // Send immediate: when the transmit FIFO has emptied
-            if (siwu_t != 0) begin
-                siwu_t <= siwu_t - 1'b1;
-                if (siwu_t == 2'd1) ft_siwu_n <= 1'b1;
-            end else if (sent && tx_count == 0 && fs == F_IDLE) begin
-                ft_siwu_n <= 1'b0;
-                siwu_t    <= 2'd3;
-                sent      <= 1'b0;
-            end
-
-            case (fs)
-                F_IDLE: begin
-                    ft_t <= 4'd0;
-                    if (en && rxf && rx_room) begin
-                        ft_rd_n <= 1'b0;
-                        fs      <= F_READ;
-                    end else if (en && txe && tx_valid && siwu_t == 0) begin
-                        ft_d_o  <= tx_rdata;
-                        ft_d_oe <= 1'b1;
-                        fs      <= F_WRITE;
-                    end
-                end
-                F_READ: begin
-                    ft_t <= ft_t + 1'b1;
-                    if (ft_t == 4'd7) begin
-                        in_byte  <= ft_d_i;
-                        in_valid <= 1'b1;
-                        ft_rd_n  <= 1'b1;
-                        ft_t     <= 4'd0;
-                        fs       <= F_REC;
-                    end
-                end
-                F_WRITE: begin
-                    ft_t <= ft_t + 1'b1;
-                    if (ft_t == 4'd2) ft_wr_n <= 1'b0;
-                    if (ft_t == 4'd7) begin
-                        ft_wr_n   <= 1'b1;
-                        ft_d_oe   <= 1'b0;
-                        tx_pop_ft <= 1'b1;
-                        sent      <= 1'b1;
-                        ft_t      <= 4'd0;
-                        fs        <= F_REC;
-                    end
-                end
-                F_REC: begin
-                    ft_t <= ft_t + 1'b1;
-                    if (ft_t == 4'd7) fs <= F_IDLE;
-                end
-            endcase
-        end
     end
 endmodule

@@ -514,13 +514,13 @@ module video (
     wire       buf_ready = (lg_s[1] == line_t) && (hc >= HVIS + 4'd8 || hc < HVIS);
     genvar g;
     generate for (g = 0; g < 3; g = g + 1) begin : lay
-        layer_pix u (
+        layer_pix #(.PLANAR(1), .TILES(0)) u (
             .clk_pix(clk_pix), .clk_pix5(clk_pix5), .en(en_p), .hc(hc), .hn(hn), .line_start(hc == HVIS), .ready(buf_ready),
             .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .planar(c_planar[g]), .lb(c_lb[g]),
             .planes(c_planes[g]), .hs(c_hs[g]), .pos0(c_pos0[g]), .transp(c_transp[g]),
-            .palofs(c_palofs[g]),
-            .dat(dat[128*g +: 128]), .fill_t(fill_t[g]), .take_t(take_t[g]),
-            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .overrun_t(ov_t[g])
+            .palofs(c_palofs[g]), .tile(1'b0),
+            .dat(dat[128*g +: 128]), .attr(10'd0), .fill_t(fill_t[g]), .take_t(take_t[g]),
+            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .pri(), .overrun_t(ov_t[g])
         );
     end endgenerate
 

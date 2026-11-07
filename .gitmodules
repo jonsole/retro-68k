@@ -1,3 +1,6 @@
 [submodule "fpga/third_party/fx68k"]
 	path = fpga/third_party/fx68k
 	url = https://github.com/ijor/fx68k
+[submodule "fpga/retro-hw"]
+	path = fpga/retro-hw
+	url = https://github.com/jonsole/retro-hw.git

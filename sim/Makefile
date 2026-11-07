@@ -17,9 +17,14 @@ RTL   := $(ROOT)/fpga/rtl
 FX68K := $(ROOT)/fpga/third_party/fx68k
 BUILD := build
 
-RTL_SRC := $(RTL)/timebase.v $(RTL)/cpu_fx68k.v $(RTL)/sram_ctl.v $(RTL)/dmac.v $(RTL)/bus_if.v \
-           $(RTL)/bootrom.v $(RTL)/fifo8.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/layer_pix.v $(RTL)/bpldma.v $(RTL)/sprite_pix.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v
-SIM_SRC := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v sd_model.v ps2_model.v tb.v
+HW    := $(ROOT)/fpga/retro-hw
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v
+HW    := $(ROOT)/fpga/retro-hw
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v
+HW    := $(ROOT)/fpga/retro-hw
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/dmx_core.v
+RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/bpldma.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
+SIM_SRC := $(HW)/platform/sim/oddr.v $(HW)/sim/sram_model.v $(HW)/sim/ft232h_model.v sd_model.v $(HW)/sim/ps2_model.v tb.v
 
 .PHONY: vtest ctest atest dtest iotest rtest serial cresume all run frame clean
 all: run
@@ -129,7 +134,7 @@ rtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 serial:
 	@set -e; mkdir -p $(BUILD)/serial; \
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $(BUILD)/serial/tb_serial.vvp \
-	    serial/tb_serial.v $(RTL)/serial.v $(RTL)/fifo8.v ft232h_model.v; \
+	    serial/tb_serial.v $(RTL)/serial.v $(HW)/rtl/fifo8.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/sim/ft232h_model.v; \
 	$(VVP) -n $(BUILD)/serial/tb_serial.vvp > $(BUILD)/serial/sim.log; \
 	grep -a "^FAIL" $(BUILD)/serial/sim.log || true; \
 	grep -q "^TEST PASSED" $(BUILD)/serial/sim.log || { tail -n 20 $(BUILD)/serial/sim.log; exit 1; }; \

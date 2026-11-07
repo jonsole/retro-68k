@@ -16,9 +16,15 @@ mkdir -p "$out"
 python3 "$root/tools/bin2hex.py" "$out/boot.bin" "$out/boot.hex"
 cp "$fx/microrom.mem" "$fx/nanorom.mem" "$out/"
 sv2v "$fx/fx68k.sv" "$fx/fx68kAlu.sv" "$fx/uaddrPla.sv" > "$out/fx68k.v"
-files="timebase cpu_fx68k sram_ctl dmac bus_if bootrom fifo8 sysregs serial intc timers layer_pix bpldma sprite_pix sprites video copper audio dmx sdspi ps2kb retro68k por_align tmds_encoder top_ks3"
+files="cpu_fx68k bus_if bootrom sysregs serial intc timers bpldma sprites video copper audio dmx sdspi ps2kb retro68k por_align top_ks3"
 src=""; for f in $files; do src="$src $rtl/$f.v"; done
-for f in ks3_clocks oddr hdmi_out vga_out; do src="$src $rtl/platform/artix7/$f.v"; done
+for f in timebase sram_ctl dmac fifo8 layer_pix sigma_delta2 tmds_encoder ps2_core slip_rx serial_link ft232h_if sprite_fetch sprite_pix copper_engine dmx_core; do src="$src $root/fpga/retro-hw/rtl/$f.v"; done
+for f in ks3_clocks vga_out; do src="$src $rtl/platform/artix7/$f.v"; done
+for f in oddr hdmi_out; do src="$src $root/fpga/retro-hw/platform/artix7/$f.v"; done
+for f in ks3_clocks vga_out; do src="$src $rtl/platform/artix7/$f.v"; done
+for f in oddr hdmi_out; do src="$src $root/fpga/retro-hw/platform/artix7/$f.v"; done
+for f in ks3_clocks vga_out; do src="$src $rtl/platform/artix7/$f.v"; done
+for f in oddr hdmi_out; do src="$src $root/fpga/retro-hw/platform/artix7/$f.v"; done
 cd "$out"
 yosys -q -l yosys.log -p "read_verilog -sv fx68k.v; read_verilog -I$rtl $src; synth_xilinx -family xc7 -top top_ks3; stat" >/dev/null 2>&1 \
     || { grep -i error yosys.log; exit 1; }

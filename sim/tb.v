@@ -231,8 +231,8 @@ module tb;
     integer ncop = 0, coptrace = 0;
     initial coptrace = $test$plusargs("coptrace");
     always @(posedge clk100) if (coptrace && ncop < 400) begin
-        if (dut.cop.xs == 3'd1 && dut.cop.have && !dut.cop.hold) begin
-            $display("%t cop %h: %h  beam %0d,%0d", $realtime, {dut.cop.npc, 2'b00}, dut.cop.ins, dut.cop.beam_v, dut.cop.beam_h);
+        if (dut.cop.eng.xs == 3'd1 && dut.cop.eng.have && !dut.cop.eng.hold) begin
+            $display("%t cop %h: %h  beam %0d,%0d", $realtime, {dut.cop.eng.npc, 1'b0}, dut.cop.ins, dut.cop.beam_v, dut.cop.beam_h);
             ncop = ncop + 1;
         end
         if (dut.cw_go) $display("%t cop write %h = %h be %b", $realtime, {dut.cw_addr, 2'b00}, dut.cw_wdata, dut.cw_be);
@@ -526,30 +526,30 @@ module tb;
     always @(posedge clk100) begin
         if (dut.spr_ack) spr_acks = spr_acks + 1;
         if (dut.spr_rvalid) spr_rv = spr_rv + 1;
-        if (|dut.vid.spr.dma_wr) spr_fw = spr_fw + 1;
+        if (|dut.vid.spr.core.dma_wr) spr_fw = spr_fw + 1;
     end
     always @(posedge dut.vid.clk_pix) if (|dut.vid.s_op) spr_px = spr_px + 1;
     always @(posedge clk100) if ($test$plusargs("sprdbg") && dut.vid.frame_tick)
         $display("%t frame: alive %b flushing %b run %b want %b pk_v %b req %b wp0 %0d infl0 %0d dl0 %0d",
-                 $realtime, dut.vid.spr.alive, dut.vid.spr.flushing, dut.vid.spr.run, dut.vid.spr.want,
-                 dut.vid.spr.pk_v, dut.vid.spr.mem_req, dut.vid.spr.wp[0], dut.vid.spr.infl[0], dut.vid.spr.dl[0]);
+                 $realtime, dut.vid.spr.core.alive, dut.vid.spr.core.flushing, dut.vid.spr.core.run, dut.vid.spr.core.want,
+                 dut.vid.spr.core.pk_v, dut.vid.spr.mem_req, dut.vid.spr.core.wp[0], dut.vid.spr.core.infl[0], dut.vid.spr.core.dl[0]);
 
 
     reg xseen = 0;
     always @(posedge clk100) if ($test$plusargs("xstop") && !xseen && !dut.vid.spr.rst && (^{dut.spr_req, dut.spr_ack, dut.spr_urgent} === 1'bx || (dut.spr_req && ^dut.spr_deadline === 1'bx))) begin : xdump
         integer q;
         xseen = 1;
-        $display("%t X in want %b", $realtime, dut.vid.spr.want);
+        $display("%t X in want %b", $realtime, dut.vid.spr.core.want);
         for (q = 0; q < 8; q = q + 1)
-            $display("  spr %0d: infl %b cnt %b wp %b rp_s2 %b alive %b flushing %b", q, dut.vid.spr.infl[q], dut.vid.spr.cnt[q],
-                     dut.vid.spr.wp[q], dut.vid.spr.rp_s2[q], dut.vid.spr.alive[q], dut.vid.spr.flushing[q]);
+            $display("  spr %0d: infl %b cnt %b wp %b rp_s2 %b alive %b flushing %b", q, dut.vid.spr.core.infl[q], dut.vid.spr.core.cnt[q],
+                     dut.vid.spr.core.wp[q], dut.vid.spr.core.rp_s2[q], dut.vid.spr.core.alive[q], dut.vid.spr.core.flushing[q]);
         $display("  q_h %b q_t %b q_s %b %b %b %b rvalid %b ack %b req %b issue %b pk %b",
-                 dut.vid.spr.q_h, dut.vid.spr.q_t, dut.vid.spr.q_s[0], dut.vid.spr.q_s[1], dut.vid.spr.q_s[2], dut.vid.spr.q_s[3],
-                 dut.vid.spr.mem_rvalid, dut.vid.spr.mem_ack, dut.vid.spr.mem_req, dut.vid.spr.issue, dut.vid.spr.pk);
+                 dut.vid.spr.core.q_h, dut.vid.spr.core.q_t, dut.vid.spr.core.q_s[0], dut.vid.spr.core.q_s[1], dut.vid.spr.core.q_s[2], dut.vid.spr.core.q_s[3],
+                 dut.vid.spr.mem_rvalid, dut.vid.spr.mem_ack, dut.vid.spr.mem_req, dut.vid.spr.core.issue, dut.vid.spr.core.pk);
         $display("  req_s %b deadline %b urgent %b d3_dl %b d3_rr %b bt %b btr %b beam_h %b dl %b %b %b %b %b %b %b %b",
-                 dut.vid.spr.req_s, dut.spr_deadline, dut.spr_urgent, dut.vid.spr.d3_dl, dut.vid.spr.d3_rr, dut.vid.spr.bt, dut.vid.spr.btr,
-                 dut.vid.spr.beam_h, dut.vid.spr.dl[0], dut.vid.spr.dl[1], dut.vid.spr.dl[2], dut.vid.spr.dl[3],
-                 dut.vid.spr.dl[4], dut.vid.spr.dl[5], dut.vid.spr.dl[6], dut.vid.spr.dl[7]);
+                 dut.vid.spr.core.req_s, dut.spr_deadline, dut.spr_urgent, dut.vid.spr.core.d3_dl, dut.vid.spr.core.d3_rr, dut.vid.spr.core.bt, dut.vid.spr.core.btr,
+                 dut.vid.spr.beam_h, dut.vid.spr.core.dl[0], dut.vid.spr.core.dl[1], dut.vid.spr.core.dl[2], dut.vid.spr.core.dl[3],
+                 dut.vid.spr.core.dl[4], dut.vid.spr.core.dl[5], dut.vid.spr.core.dl[6], dut.vid.spr.core.dl[7]);
         $display("  sched: win %b next_cycle %b start %b cpu %b bpl %b/%b dl %b spr %b aud %b cop %b pri %b blt %b port %b",
                  dut.sched.win, dut.sched.next_cycle, dut.sched.start_next, dut.sched.cpu_req, dut.sched.bpl_req, dut.sched.bpl_urgent,
                  dut.sched.bpl_deadline, dut.sched.spr_req, dut.sched.aud_req, dut.sched.cop_req, dut.sched.cop_pri,
