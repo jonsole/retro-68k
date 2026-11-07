@@ -261,7 +261,7 @@ The job registers keep the values of the last job loaded or written: the engine'
 
 | Offset | Name | Bits | Meaning |
 |--------|------|------|---------|
-| `0x3F0` | DMXINT | CH 3–0 | A channel's interrupt is pending (a job with IRQ finished, or an error); write 1 to clear |
+| `0x3F0` | DMXINT | CH 3–0 | A channel's interrupt is pending (a job with IRQ finished, or an error); write 1 to clear. A bit that comes due in the same clock as the write stays set, so no interrupt is lost (as retro-z80) |
 | `0x3F4` | DMXINTEN | CH 3–0 | Interrupt enables per channel |
 
 **Descriptor RAM:** 2 KB at `0xE06000`–`0xE067FF`, room for 64 descriptors (or small buffers). One block RAM. Its contents are undefined after reset.
