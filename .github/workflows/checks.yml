@@ -70,6 +70,8 @@ jobs:
           echo "$PWD/vasm" >> "$GITHUB_PATH"
       - name: Copper test ROM and frame check
         run: make -C sim ctest
+      - name: Copper RESUME after the copper is turned off
+        run: make -C sim cresume
       - name: Audio test, every output sample against the model
         run: make -C sim atest
 

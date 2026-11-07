@@ -200,7 +200,7 @@ Offsets in the custom register block at `0xE00000`.
 
 The copper can run a long **background** list, such as a queue of DMA engine jobs, that carries on across frames while list 1 still restarts at every vertical blank. On the Amiga, the vertical blank simply cuts list 2 off. Here, with COPCON.RESUME set:
 
-- The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 2047, or a reserved instruction), and the vertical blank clear it. JUMP, CALL, RET and the SKIPs leave it as it is, so a background list can loop, branch and call subroutines.
+- The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 2047, or a reserved instruction), the vertical blank, and turning the copper off (COPCON.EN, DMACON.COPEN or DMAEN cleared) clear it, so a COP2LC written while the copper is off is never replaced. JUMP, CALL, RET and the SKIPs leave it as it is, so a background list can loop, branch and call subroutines.
 - At the vertical blank, if the flag is set, the hardware writes the **resume address** to COP2LC before it reloads from COP1LC. The resume address is the instruction not yet finished: a WAIT still waiting (it runs again, whole), or the next instruction to run. (A palette entry's high half the copper had held stays held across the cut-off, so the pair's low half still writes the whole colour, unless list 1 writes a palette high half first.)
 - List 1 ends with a MOVE to COPJMP2, as usual, and list 2 carries on where it was cut off.
 
@@ -274,7 +274,7 @@ The assembler macros for these (`CMOVE`, `CWAIT`, `CSKIP`, `CJUMP`, `CSTOP`) are
 - **COPINT:** raises the interrupt once per write.
 - **Registers and ALU:** every ALU function and source, every flag result (carry and borrow at the 16-bit edges), every condition, MOVR in all five forms with X+ across the halves rule, all compared with the copper model.
 - **CALL and RET:** nesting to 8, overflow and underflow set ERR; the stack emptied at the vertical blank, or kept with STKKEEP.
-- **RESUME:** a background list cut off at the vertical blank, mid-WAITB and between the halves of a MOVE pair, carries on from the right place; without RESUME, COP2LC is never changed.
+- **RESUME:** a background list cut off at the vertical blank, mid-WAITB and between the halves of a MOVE pair, carries on from the right place; without RESUME, COP2LC is never changed; after the copper is turned off while list 2 runs, a COP2LC written meanwhile is kept (`make cresume`).
 
 ## 11. Later versions
 

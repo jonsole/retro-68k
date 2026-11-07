@@ -313,6 +313,7 @@ module copper (
             end
             if (!en) begin
                 xs <= X_OFF;
+                in2 <= 1'b0;           // off forgets list 2, so RESUME saves nothing stale
                 cw_req <= 1'b0;
                 if (xs != X_OFF) flush = 1'b1;
             end
