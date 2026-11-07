@@ -15,7 +15,7 @@ A sister project, retro-z80, is built by another Claude session on this machine 
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues on jonsole/retro68k, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues on jonsole/retro-68k, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
