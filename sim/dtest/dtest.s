@@ -11,7 +11,8 @@
 ;              rest a chain in Chip RAM
 ;
 ; Then directed tests on single jobs (palettes, the ROM, registers, errors,
-; STOP, PAUSE, port 1 both ways, HIGH, a timer start, MASK = 3), checked by the CPU.
+; STOP, PAUSE, port 1 both ways, HIGH, the slot plan, a timer start, MASK = 3),
+; checked by the CPU.
 ; The PASS line itself is sent by a DMA job from the ROM to port 1. Run
 ; with +dmxsend (the PC sends the bytes the port test expects).
 ;
@@ -60,10 +61,10 @@ start:      move.w  #$2700,sr
             move.l  C_CH0(a0),DMX0+DMX_CHDESC(a4)
             move.l  C_CH1(a0),DMX1+DMX_CHDESC(a4)
             move.l  C_CH2(a0),DMX2+DMX_CHDESC(a4)
-            move.l  #DMX_CHCTRL_START_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX0+DMX_CHCTRL(a4)
-            move.l  #DMX_CHCTRL_START_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX1+DMX_CHCTRL(a4)
-            move.l  #DMX_CHCTRL_START_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX2+DMX_CHCTRL(a4)
-            move.l  #DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX3+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_START_M,DMX0+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_START_M,DMX1+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_START_M,DMX2+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_RUN_M,DMX3+DMX_CHCTRL(a4)
 
             ; wait for all four
 .wait:      move.l  DMX0+DMX_CHSTAT(a4),d0
@@ -107,7 +108,7 @@ hang:       bra.s   hang
 D_AREA      equ     $080000
 COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)  ; BLIT D = B, 8 bpp, B from memory
 FILL8       equ     COPY8|(DMX_KIND_VALUE<<DMX_CTRL_BKIND_B)          ; B is VALUE
-CHGO        equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)
+CHGO        equ     DMX_CHCTRL_RUN_M
 
 directed:   lea     D_AREA,a1           ; 16 long words of test data (palette colours)
             move.l  #$00102030,d0
@@ -224,7 +225,7 @@ directed:   lea     D_AREA,a1           ; 16 long words of test data (palette co
             move.l  #$12345678,DMX2+DMX_CTRL(a4)
             cmp.l   #FILL8,DMX2+DMX_CTRL(a4)
             bne     failed
-            move.l  #DMX_CHCTRL_STOP_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX2+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_STOP_M,DMX2+DMX_CHCTRL(a4)
 .w2:        btst    #DMX_CHSTAT_BUSY_B,DMX2+DMX_CHSTAT+3(a4)
             bne.s   .w2
             btst    #DMX_CHSTAT_DONE_B,DMX2+DMX_CHSTAT+3(a4)
@@ -248,7 +249,7 @@ directed:   lea     D_AREA,a1           ; 16 long words of test data (palette co
             bne     failed
             cmp.l   #$FFFFFFFF,$0B0000
             bne     failed
-            move.l  #1<<DMX_CHCTRL_CPUSHARE_B,DMX2+DMX_CHCTRL(a4)
+            move.l  #0,DMX2+DMX_CHCTRL(a4)
 .w3:        btst    #DMX_CHSTAT_BUSY_B,DMX2+DMX_CHSTAT+3(a4)
             bne.s   .w3
             tst.l   $0B0000
@@ -273,6 +274,48 @@ directed:   lea     D_AREA,a1           ; 16 long words of test data (palette co
 .hi:        cmp.l   #$3C3C3C3C,(a1)+
             bne     failed
             dbra    d1,.hi
+
+            ; The slot plan (MEMSLOT0-4) and HIGH, by the time the CPU takes
+            ; for 32 Chip RAM reads while an 8 KB FILL runs (spec 5, section 10)
+            lea     s_t17(pc),a0
+            lea     plan0(pc),a1        ; the default plan reads back
+            lea     MEMSLOT0(a4),a2
+            moveq   #5-1,d1
+            bsr     cmpl
+            lea     s_t18(pc),a0
+            bsr     reads32             ; no job: d3 = the time with no waits
+            move.l  d2,d3
+            lea     j_time(pc),a1       ; a normal job: the CPU never waits
+            bsr     timejob
+            sub.l   d3,d2
+            cmp.l   #10,d2
+            bge     failed
+            lea     j_timehi(pc),a1     ; a HIGH job: it owns slot 0 and goes first in the rest
+            bsr     timejob
+            sub.l   d3,d2
+            cmp.l   #50,d2
+            blt     failed              ; the CPU waits: 500 ns or more in all
+            lea     s_t19(pc),a0
+            moveq   #MEMSLOT0_BLT_M,d0  ; a plan with the DMA engine owner of every slot
+            lea     MEMSLOT0(a4),a2
+            moveq   #5-1,d1
+.pl1:       move.l  d0,(a2)+
+            dbra    d1,.pl1
+            lea     j_time(pc),a1       ; a normal job now makes the CPU wait too
+            bsr     timejob
+            sub.l   d3,d2
+            cmp.l   #50,d2
+            blt     failed
+            lea     plan0(pc),a1        ; the default plan back
+            lea     MEMSLOT0(a4),a2
+            moveq   #5-1,d1
+.pl2:       move.l  (a1)+,(a2)+
+            dbra    d1,.pl2
+            lea     s_t17(pc),a0
+            lea     plan0(pc),a1
+            lea     MEMSLOT0(a4),a2
+            moveq   #5-1,d1
+            bsr     cmpl
 
             lea     j_tmr(pc),a1        ; a timer starts channel 3 at the descriptor in CHDESC
             lea     CUSTOM+DESCRAM+$7E0,a2
@@ -313,6 +356,32 @@ runjob:     lea     DMX0(a4),a2
             btst    #DMX_CHSTAT_BUSY_B,d0
             bne.s   .w
             rts
+; run the job at a1 on channel 0 and time 32 Chip RAM reads while it runs:
+; d2 = their time in 10 ns units; fail (a0) if the job ended with an error
+timejob:    lea     DMX0(a4),a2
+            moveq   #8-1,d1
+.l:         move.l  (a1)+,(a2)+
+            dbra    d1,.l
+            move.l  #CHGO,DMX0+DMX_CHCTRL(a4)
+            bsr.s   reads32
+.w:         move.l  DMX0+DMX_CHSTAT(a4),d0
+            btst    #DMX_CHSTAT_BUSY_B,d0
+            bne.s   .w
+            btst    #DMX_CHSTAT_ERR_B,d0
+            bne     failed
+            rts
+; time 32 Chip RAM reads (TIME, 10 ns units) into d2
+reads32:    lea     D_AREA,a3
+            move.l  TIMEHI(a5),d0
+            move.l  TIMELO(a5),d2
+            rept    32
+            tst.w   (a3)
+            endr
+            move.l  TIMEHI(a5),d0
+            move.l  TIMELO(a5),d0
+            sub.l   d2,d0
+            move.l  d0,d2
+            rts
 ; compare d1 + 1 long words at a1 and a2; fail (a0) on a difference
 cmpl:       cmpm.l  (a1)+,(a2)+
             bne     failed
@@ -336,6 +405,8 @@ j_big:      dc.l   FILL8, 0, $0A0000, (4<<16)|$4000, 0, $4000, 0, 0
 j_pause:    dc.l   FILL8, 0, $0B0000, (1<<16)|256, 0, 0, 0, 0
 j_portin:   dc.l   COPY8|(1<<DMX_CTRL_BKIND_B), 1, D_AREA+$800, (1<<16)|64, 0, 0, 0, 0
 j_high:     dc.l   FILL8|DMX_CTRL_HIGH_M, 0, D_AREA+$A00, (1<<16)|256, 0, 0, $3C3C3C3C, 0
+j_time:     dc.l   FILL8, 0, $0C0000, (1<<16)|$2000, 0, 0, $69696969, 0
+j_timehi:   dc.l   FILL8|DMX_CTRL_HIGH_M, 0, $0C0000, (1<<16)|$2000, 0, 0, $96969696, 0
 j_tmr:      dc.l   FILL8, 0, D_AREA+$900, (1<<16)|32, 0, 0, $5A5A5A5A, 0
 j_pass:     dc.l   COPY8|(1<<DMX_CTRL_DKIND_B), s_pass, 1, (1<<16)|6, 0, 0, 0, 0
 
@@ -357,7 +428,13 @@ s_t13:      dc.b    "FAIL: T13 port 1 to memory",13,10,0
 s_t14:      dc.b    "FAIL: T14 a HIGH job",13,10,0
 s_t15:      dc.b    "FAIL: T15 a timer starts a channel",13,10,0
 s_t16:      dc.b    "FAIL: T16 MASK = 3 is an error",13,10,0
+s_t17:      dc.b    "FAIL: T17 MEMSLOT0-4 read back",13,10,0
+s_t18:      dc.b    "FAIL: T18 a normal job never makes the CPU wait, a HIGH job does",13,10,0
+s_t19:      dc.b    "FAIL: T19 a plan with the DMA engine in every slot makes the CPU wait",13,10,0
             even
+; the default slot plan, MEMSLOT0-4 (spec 5, section 8.1)
+plan0:      dc.l    MEMSLOT0_CPU_M, MEMSLOT0_BPL_M|MEMSLOT0_SPR_M, MEMSLOT0_AUD_M
+            dc.l    MEMSLOT0_BPL_M|MEMSLOT0_SPR_M, 0
 
 puts:       move.b  (a0)+,d0
             beq.s   .done

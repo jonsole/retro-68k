@@ -77,6 +77,11 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x01C` | PRIO | RW | 4, 4.8 |
 | `0x020` | VIDSIZE | R | 4, 6.1 |
 | `0x094` | DMACON | Set/clear | 5, 8. Its 16-bit value is in the low half at `0x096`, the same address as the Amiga's DMACON |
+| `0x098` | MEMSLOT0 | RW | 5, 8.1. The memory slot plan: slot 0's owners (bits 6–0, one per requester) and lock (bit 7) |
+| `0x09C` | MEMSLOT1 | RW | 5, 8.1. Slot 1, as MEMSLOT0 |
+| `0x0A0` | MEMSLOT2 | RW | 5, 8.1. Slot 2, as MEMSLOT0 |
+| `0x0A4` | MEMSLOT3 | RW | 5, 8.1. Slot 3, as MEMSLOT0 |
+| `0x0A8` | MEMSLOT4 | RW | 5, 8.1. Slot 4, as MEMSLOT0 |
 
 ### 3.3 Layers (`0xE00100`)
 

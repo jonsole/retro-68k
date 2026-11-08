@@ -41,6 +41,13 @@ reg 0x020 VIDSIZE    R    4/6.1  VVISIBLE=26:16 HVISIBLE=10:0
 
 # DMA control (spec 5); its 16-bit value sits in the low half at 0x096, as on the Amiga
 reg 0x094 DMACON     SC   5/8    AUD0EN=0 AUD1EN=1 AUD2EN=2 AUD3EN=3 SPREN=5 BLTEN=6 COPEN=7 BPLEN=8 DMAEN=9 SETCLR=15
+# The memory slot plan (spec 5): one register per slot of the scheduler's plan,
+# an owner bit per requester (by its number) and a lock bit
+reg 0x098 MEMSLOT0   RW   5/8.1  BPL=0 SPR=1 AUD=2 COP=3 CPU=4 BLT=5 PORT=6 LOCK=7
+reg 0x09C MEMSLOT1   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A0 MEMSLOT2   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A4 MEMSLOT3   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A8 MEMSLOT4   RW   5/8.1  fields=MEMSLOT0
 
 # Layers 0-2 (spec 4): bitmaps with Amiga-style plane pointers, modulo and data registers
 array L 3 0x100 0x80 4/6.2
@@ -81,7 +88,7 @@ array DMX 4 0x300 0x40 11/8
   reg 0x18 VALUE  RW   11/8
   reg 0x1C NEXT   RW   11/8  ADDR=23:0
   reg 0x20 CHDESC RW   11/8  ADDR=23:0
-  reg 0x24 CHCTRL RW   11/8  START=0 RUN=1 STOP=2 PAUSE=3 CPUSHARE=5:4
+  reg 0x24 CHCTRL RW   11/8  START=0 RUN=1 STOP=2 PAUSE=3
   reg 0x28 CHSTAT RW1C 11/8  BUSY=0 DONE=1 ERR=2 PAUSED=3
   reg 0x2C CHERR  R    11/8  ADDR=23:0
 end

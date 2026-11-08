@@ -550,10 +550,9 @@ module tb;
                  dut.vid.spr.core.req_s, dut.spr_deadline, dut.spr_urgent, dut.vid.spr.core.d3_dl, dut.vid.spr.core.d3_rr, dut.vid.spr.core.bt, dut.vid.spr.core.btr,
                  dut.vid.spr.beam_h, dut.vid.spr.core.dl[0], dut.vid.spr.core.dl[1], dut.vid.spr.core.dl[2], dut.vid.spr.core.dl[3],
                  dut.vid.spr.core.dl[4], dut.vid.spr.core.dl[5], dut.vid.spr.core.dl[6], dut.vid.spr.core.dl[7]);
-        $display("  sched: win %b next_cycle %b start %b cpu %b bpl %b/%b dl %b spr %b aud %b cop %b pri %b blt %b port %b",
-                 dut.sched.win, dut.sched.next_cycle, dut.sched.start_next, dut.sched.cpu_req, dut.sched.bpl_req, dut.sched.bpl_urgent,
-                 dut.sched.bpl_deadline, dut.sched.spr_req, dut.sched.aud_req, dut.sched.cop_req, dut.sched.cop_pri,
-                 dut.sched.blt_req, dut.sched.port_req);
+        $display("  sched (0 bpl, 1 spr, 2 aud, 3 cop, 4 cpu, 5 blt, 6 port): win %b next_slot %b start %b req %b urgent %b high %b owners %b",
+                 dut.sched.win, dut.sched.next_slot, dut.sched.start_next, dut.sched.req, dut.sched.urgent,
+                 dut.sched.high, dut.sched.owners);
         $finish;
     end
 

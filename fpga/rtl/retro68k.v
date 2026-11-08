@@ -213,45 +213,55 @@ module retro68k #(
     wire        disp_req, disp_urgent, disp_ack, disp_rvalid;
     wire        spr_req, spr_urgent, spr_ack, spr_rvalid;
     wire [21:1] spr_addr;
-    wire [9:0]  spr_deadline;
+    wire [9:0]  spr_deadline;              // the scheduler no longer uses it (spec 5, section 6); tb.v shows it
     wire [21:1] disp_addr;
-    wire [9:0]  disp_deadline;
     wire        aud_req, aud_ack, aud_rvalid;
     wire [21:1] aud_addr;
     wire        cop_req, cop_ack, cop_rvalid;
     wire [21:1] cop_addr;
     wire [1:0]  cop_pri;
     wire        blt_req, blt_we, blt_ack, blt_rvalid, blt_high;
-    wire [1:0]  blt_share;
     wire [21:1] blt_addr;
     wire [15:0] blt_wdata;
     wire [1:0]  blt_be;
+    wire [39:0] memplan;                   // MEMSLOT0-4 (in video.v): slot n in bits 8n+7..8n
+
+    // The slot plan (spec 5, section 6.2). Requesters by number: 0 layers,
+    // 1 sprites, 2 audio, 3 copper, 4 CPU, 5 DMA engine, 6 DMA port. While
+    // a nasty copper (COPCON.PRI 2) or a HIGH DMA engine job asks, it owns
+    // slot 0 in place of the CPU, whatever MEMSLOT0 says.
+    wire        nasty  = cop_req && cop_pri == 2'd2;
+    wire        hijob  = blt_req && blt_high;
+    wire [6:0]  own0   = (nasty || hijob) ? {memplan[6], hijob || memplan[5], 1'b0, nasty || memplan[3], memplan[2:0]}
+                                          : memplan[6:0];
+    wire [34:0] slot_owner = {memplan[38:32], memplan[30:24], memplan[22:16], memplan[14:8], own0};
+    wire [4:0]  slot_lock  = {memplan[39], memplan[31], memplan[23], memplan[15], memplan[7]};
+
     // The DMA scheduler (spec 5): who gets each memory cycle
     wire        m_start, m_go, m_go_we, m_rvalid_any;
-    wire [2:0]  m_cycle, m_go_tag, m_rtag;
+    wire [2:0]  m_cycle;
     wire [21:1] m_go_addr;
     wire [15:0] m_go_wdata;
     wire [1:0]  m_go_be;
-    dmac sched (
-        .clk(clk100), .rst(sys_rst), .start_next(m_start), .next_cycle(m_cycle),
-        .cpu_req(m_req), .cpu_we(m_we), .cpu_addr(m_addr), .cpu_wdata(m_wdata), .cpu_be(m_be),
-        .cpu_ack(m_ack), .cpu_rvalid(m_rvalid),
-        .bpl_req(disp_req), .bpl_addr(disp_addr), .bpl_deadline(disp_deadline), .bpl_urgent(disp_urgent),
-        .bpl_ack(disp_ack), .bpl_rvalid(disp_rvalid),
-        .spr_req(spr_req), .spr_addr(spr_addr), .spr_deadline(spr_deadline), .spr_urgent(spr_urgent), .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
-        .aud_req(aud_req), .aud_addr(aud_addr), .aud_ack(aud_ack), .aud_rvalid(aud_rvalid),
-        .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be),
-        .blt_high(blt_high), .blt_share(blt_share), .blt_ack(blt_ack), .blt_rvalid(blt_rvalid),
-        .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata), .port_be(dma_be),
-        .port_ack(dma_ack), .port_rvalid(dma_rvalid),
-        .go(m_go), .go_we(m_go_we), .go_addr(m_go_addr), .go_wdata(m_go_wdata), .go_be(m_go_be), .go_tag(m_go_tag),
-        .rvalid(m_rvalid_any), .rtag(m_rtag)
+    dmac #(.N(7), .S(5)) sched (
+        .clk(clk100), .rst(sys_rst), .start_next(m_start), .next_slot(m_cycle),
+        .slot_owner(slot_owner), .slot_lock(slot_lock),
+        .req   ({dma_req, blt_req, m_req, cop_req, aud_req, spr_req, disp_req}),
+        .urgent({5'd0, spr_urgent, disp_urgent}),
+        .high  ({1'b0, blt_high, 1'b0, cop_pri != 2'd0, 3'd0}),
+        .we    ({dma_we, blt_we, m_we, 4'd0}),
+        .addr  ({dma_addr, blt_addr, m_addr, cop_addr, aud_addr, spr_addr, disp_addr}),
+        .wdata ({dma_wdata, blt_wdata, m_wdata, 64'd0}),
+        .be    ({dma_be, blt_be, m_be, 8'd0}),
+        .ack     ({dma_ack, blt_ack, m_ack, cop_ack, aud_ack, spr_ack, disp_ack}),
+        .rvalid_o({dma_rvalid, blt_rvalid, m_rvalid, cop_rvalid, aud_rvalid, spr_rvalid, disp_rvalid}),
+        .go(m_go), .go_we(m_go_we), .go_addr(m_go_addr), .go_wdata(m_go_wdata), .go_be(m_go_be),
+        .rvalid(m_rvalid_any)
     );
     sram_ctl mem (
         .clk(clk100), .rst(sys_rst), .sc(sc),
-        .go(m_go), .go_we(m_go_we), .go_addr(m_go_addr), .go_wdata(m_go_wdata), .go_be(m_go_be), .go_tag(m_go_tag),
-        .start_next(m_start), .next_cycle(m_cycle), .rvalid(m_rvalid_any), .rtag(m_rtag),
+        .go(m_go), .go_we(m_go_we), .go_addr(m_go_addr), .go_wdata(m_go_wdata), .go_be(m_go_be),
+        .start_next(m_start), .next_cycle(m_cycle), .rvalid(m_rvalid_any),
         .rdata(mem_rdata),
         .sram_a(sram_a), .sram_ce_n(sram_ce_n), .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n),
         .sram_oe_n_r(sram_oe_n_r), .sram_oe_n_f(sram_oe_n_f),
@@ -305,7 +315,7 @@ module retro68k #(
         .rb_rdata(rd_vid),
         .irq_vblank(irq_vblank), .irq_line(irq_line), .irq_viderr(irq_viderr),
         .line_tick(line_tick), .frame_tick(frame_tick), .beam_v(beam_v), .beam_h(beam_h),
-        .dmacon(dmacon), .disp_req(disp_req), .disp_urgent(disp_urgent), .disp_deadline(disp_deadline), .disp_addr(disp_addr),
+        .dmacon(dmacon), .memplan(memplan), .disp_req(disp_req), .disp_urgent(disp_urgent), .disp_deadline(), .disp_addr(disp_addr),
         .disp_ack(disp_ack), .disp_rvalid(disp_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
@@ -339,7 +349,7 @@ module retro68k #(
         .rom_en(rom_en_b), .rom_addr(rom_addr_b), .rom_rdata(rom_rdata_b),
         .p0_rxv(p0_rxv), .p0_rxd(p0_rxd), .p0_rxpop(p0_rxpop), .p0_txr(p0_txr), .p0_txpush(p0_txpush),
         .p1_rxv(p_rxv), .p1_rxd(p_rxd), .p1_rxpop(p_rxpop), .p1_txr(p_txr), .p1_txpush(p_txpush), .p_txd(p_txd),
-        .blt_high(blt_high), .blt_share(blt_share),
+        .blt_high(blt_high),
         .tmr_start(tmr_dma_start), .tmr_ch(tmr_dma_ch),
         .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
         .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
