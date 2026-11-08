@@ -208,7 +208,7 @@ With VIDCON.DIRECT set, the layers' palettes and the priority are not used (spri
 - **When a group is complete:** the DMA fills a group's data registers from the highest down, and the group is complete when the last of them arrives (BPL0DAT, unless plane 0's DMA is off; section 5.5). For a layer with no DMA, the CPU or copper writes the data registers, and its write of BPL0DAT completes the group.
 - The shifters take all of a layer's data registers at once. They take the line's first group as soon as it is complete, in the horizontal blank, so the second group is already in the data registers when the window starts (as the Amiga fetches ahead of the display window). After that they take the next group each time the current one is used up (every 16 source pixels). Each take empties the data registers, and the DMA fetches the next group.
 - The display owns **memory cycles 1 and 3 of every slot** (40 and 60 ns apart): 4 bytes every 100 ns (spec 5, section 4.3). It may also use any cycle nobody else wants, including cycle 0 when the CPU leaves it, and, as on the Amiga, an **urgent** fetch (one about to be late) takes the CPU's cycle 0 (spec 5, section 6).
-- **Order:** each word goes to the layer whose deadline is nearest (**earliest deadline first**): when a layer's shifters take a group, its countdown loads the time that group lasts (16 source pixels × its scale). Layers with equal deadlines take turns. A request whose deadline is about to pass is **urgent**.
+- **Order:** each word goes to the layer whose deadline is nearest (**earliest deadline first**, chosen in `bpldma.v`): when a layer's shifters take a group, its countdown loads the time that group lasts (16 source pixels × its scale). Layers with equal deadlines take turns. A request whose deadline is about to pass is **urgent**. The layers' requests go ahead of the sprites' in the scheduler, by number; only an urgent sprite fetch goes ahead of a layer's that is not urgent (spec 5, section 6.3).
 - **Start and stop:** at the start of the horizontal blank, each layer whose window covers the next line gets its first group fetched; the number of groups on the line comes from the window width, scale and fine scroll. Nothing is fetched outside the windows.
 - With vertical scaling, each source line is fetched again for every screen line it appears on.
 
@@ -275,7 +275,7 @@ The pixel side (27 MHz) and the memory side (100 MHz) are asynchronous (section 
 
 The next group must be complete before the current one is used up: 16 source pixels, which is 593 ns at 1×, 1185 ns at 2×. Two design choices keep the fixed part short: the "full" synchroniser runs at 135 MHz rather than at the 27 MHz pixel clock (two 27 MHz flip-flops would cost up to 111 ns), and the display's two memory cycles are spread out in the slot (cycles 1 and 3) rather than side by side, so a request never waits more than 60 ns for one.
 
-**Turnaround limit.** Layers whose windows start at the same place, with the same scroll and scale, use up their groups at the same pixel, so all their words are wanted at once. The DMA scheduler (spec 5, section 6) serves the earliest deadline first, uses free cycles 2 and 4 when nobody else wants them, and lets an urgent fetch take the CPU's cycle 0. Measured in simulation at 576p, full width, every layer planar, all in step:
+**Turnaround limit.** Layers whose windows start at the same place, with the same scroll and scale, use up their groups at the same pixel, so all their words are wanted at once. The layer fetch serves the earliest deadline first, the DMA scheduler (spec 5, section 6) gives it free cycles 2 and 4 when nobody else wants them, and lets an urgent fetch take the CPU's cycle 0. Measured in simulation at 576p, full width, every layer planar, all in step:
 
 | Layers | Planes in step | Bytes per pixel | Result |
 |--------|----------------|-----------------|--------|
@@ -347,7 +347,7 @@ Entry i of palette p is at `0xE04000 + p × 0x400 + i × 4`. Bits 31–24 read a
 | # | Item |
 |---|------|
 | V1 | Check in Vivado that the clock-domain crossings are all covered (asynchronous clock groups) and the pixel pipeline meets timing |
-| V3 | Done: the DMA scheduler orders the layers' fetches by deadline (section 5.6) |
+| V3 | Done: the layer fetch orders the layers' words by deadline (section 5.6). Since the generic scheduler, the layers go ahead of the sprites by number (spec 5, section 6.3) |
 | V2 | Plain DVI has no info packets. Add the HDMI AVI InfoFrame (576p, 4:3, "underscanned", IT content) so TVs neither crop the picture nor treat it as video; needs the HDMI data-island encoder (with HDMI audio, later) |
 
 ## 9. Tests

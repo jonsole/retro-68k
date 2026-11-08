@@ -13,7 +13,7 @@ One engine moves data for the CPU: copying and filling memory, feeding periphera
 | Jobs | **BLIT**, as the Amiga's blitter: each pixel any logic function (minterm) of a mask A, an image B and the destination's old contents C; copies, fills, cookie-cut drawing with a colour key or a 1 bpp mask, and logic all come from it. **ADD** per pixel. In 1D (linear) or 2D (rectangles with a stride). MIX (audio voices) is on hold |
 | Pixel formats | 1, 2, 4 or 8 bits per pixel, positioned to the pixel: chunky layers directly, planar layers one plane at a time (section 6.1) |
 | Sources and destinations | Chip RAM, the custom registers and palettes, the descriptor RAM, the boot ROM (read only), or a peripheral port (USB serial; the SD card later) |
-| Memory cycles | Normally only free ones, so the CPU is never slowed. A **HIGH** bit per job lets it take some of the CPU's cycles, like the Amiga's "blitter nasty" |
+| Memory cycles | Normally only free ones, so the CPU is never slowed. A **HIGH** bit per job lets it take the CPU's cycles, like the Amiga's "blitter nasty" |
 | Speed at 576p | Copy about 25–38 MB/s, fill 50–77 MB/s, depending on the screen and how busy the CPU is (section 7). A 68000 at 20 MHz copies about 4 MB/s |
 | Finishing | An interrupt per descriptor if asked, status flags per channel |
 
@@ -177,11 +177,12 @@ When a port isn't ready, that channel waits and the other channels keep running.
 
 ## 5. Memory cycles and priority
 
-The engine is the DMA engine channel (BLT) of the memory scheduler (spec 5, section 6): after the hard-deadline channels, audio and the copper in the free order, ahead of the DMA port.
+The engine is requester 5 (BLT) of the memory scheduler (spec 5, section 6): in the spare-cycle order after the display, audio, the copper and the CPU, ahead of the DMA port.
 
 - **One memory cycle** (20 ns) reads or writes 2 bytes at any even address, with byte selects for single bytes (spec 5, section 4.2). A copy costs 2 cycles per 2 bytes (one read, one write); a fill costs 1; a job that reads the destination costs 3.
-- **Normal jobs** use cycles nobody else wants: cycle 4, cycle 2 when audio isn't using it, display cycles (1 and 3) no layer needs (all of them in the vertical blank), and cycle 0 whenever the CPU isn't using it. **The CPU is never slowed.**
-- **HIGH jobs** may also take the CPU's cycle 0, but always leave the CPU a share of them, so it can still run interrupts and code from Chip RAM. The share is set per channel by CHCTRL.CPUSHARE: **1 in 2, 1 in 4 (default) or 1 in 8** of the cycle 0s the CPU asks for. Each cycle taken makes the CPU wait one slot (100 ns), as an urgent display fetch does. Use HIGH when the CPU would only be waiting for the job anyway.
+- **Normal jobs** use cycles nobody else wants: cycle 4, cycle 2 when audio isn't using it, display cycles (1 and 3) no layer or sprite needs (all of them in the vertical blank), and cycle 0 whenever the CPU isn't using it. **The CPU is never slowed** (with the default slot plan, spec 5, section 8.1).
+- **HIGH jobs** (CTRL.HIGH) own the CPU's cycle 0 while they ask, and go first for every cycle its owners leave, ahead of the CPU, the copper at PRI 0, audio and the display's fetches that are not urgent. The display keeps its own cycles 1 and 3 and its urgent fetches, and audio its cycle 2. **The CPU gets only the cycles a HIGH job leaves, so a long HIGH job can hold the CPU off, interrupts included, for as long as it runs**; with one channel running, the engine leaves about 1 cycle in 10 (between its groups of 8 words), which the CPU then takes. There is no CPU share: use HIGH when the CPU would only be waiting for the job anyway, and keep HIGH jobs short when interrupts must be served quickly.
+- **The slot plan** (MEMSLOT0–4, spec 5, section 8.1) can also make the engine the owner of cycles, for every job: `0x20` in MEMSLOT0 gives it cycle 0 in place of the CPU.
 - **Between channels:** channels with work to do take turns, a group of up to 8 destination words (or 8 bytes of a port job) each, so a long blit can't hold up a peripheral transfer for more than a fraction of a microsecond. A channel waiting for its port gives up its turn.
 - **Descriptors** in Chip RAM take 16 read cycles (32 bytes) to load. Descriptors in the descriptor RAM take none, which suits short, frequent jobs.
 
@@ -221,7 +222,7 @@ A 576p line is 32 µs: 320 slots, 1,600 memory cycles. The engine gets what the 
 |-----------------|---------------------|
 | Cycle 4 | 320, less the copper's |
 | Cycle 2 | 320, less audio's (a few: 4 channels of 8-bit samples need about 2 words per line) |
-| Cycle 0 | The CPU's leftovers: at least 160 when the 68000 runs flat out from Chip RAM (a bus cycle is two slots), 320 when it runs from ROM or waits |
+| Cycle 0 | The CPU's leftovers: at least 160 when the 68000 runs flat out from Chip RAM (a bus cycle is two slots), 320 when it runs from ROM or waits. The CPU also takes spare cycles ahead of the engine when it misses its cycle 0, so in practice it takes about one cycle in 10 wherever it falls |
 | Cycles 1 and 3 | 640 less the layers' fetches (spec 4, section 5.2), less sprites' |
 
 Some screens, before the copper and sprites take their (usually small) share:
@@ -233,7 +234,7 @@ Some screens, before the copper and sprites take their (usually small) share:
 | CPU idle, one full-screen 8 bpp chunky layer | about 1,230 | 38 MB/s | 77 MB/s |
 | Vertical blank (49 lines a frame), CPU busy | about 1,440 | 45 MB/s | 90 MB/s |
 
-A HIGH job takes up to 3 in 4 (default CPUSHARE) of the cycle 0s a busy CPU would use: about 120 more cycles a line, 4 MB/s more copy speed. HIGH with "1 in 2" adds nothing to the speed (the CPU never asks for more than every other cycle 0); it only makes the CPU wait in turn.
+A HIGH job gets the cycles a busy CPU would use (up to 160 a line, about 5 MB/s more copy speed), and goes ahead of the display's fetches that are not urgent in the cycles their owners leave. It gains less than that: with one channel running, the engine leaves about 1 cycle in 10 between its groups, and the CPU takes those instead (in simulation, an 8 KB FILL, 4,096 writes, with the CPU reading Chip RAM took 4,617 memory cycles as a HIGH job, 485 of them idle, and 4,649 as a normal one, 517 idle). Its main effect is on the CPU, which waits for those gaps.
 
 Jobs that read the destination (a minterm that uses C, ADD) need 3 cycles per 2 bytes instead of 2, so they run at about two thirds of the copy speed. Jobs at 1, 2 or 4 bpp that are not byte-aligned add a read at each row edge.
 
@@ -251,7 +252,7 @@ Offsets in the custom register block at `0xE00000` (spec 3, section 3.5).
 |--------|------|------|---------|
 | `+0x00`–`+0x1C` | CTRL, BPT, DPT, SIZE, APT, STRIDE, VALUE, NEXT | As in section 3 | The job to run, or running. Writes are ignored while the channel is BUSY |
 | `+0x20` | CHDESC | 23–0 | The descriptor START loads (long-word aligned). Read: the descriptor now running, or the last one loaded. Writes are ignored while the channel is BUSY |
-| `+0x24` | CHCTRL | START (0), RUN (1), STOP (2), PAUSE (3), CPUSHARE (5–4) | START (strobe): load the descriptor at CHDESC into the job registers and run it. RUN (strobe): run the job already in the job registers. Either way, at the end of the job the channel loads the descriptor at NEXT and runs it, until NEXT is 0. Both are ignored while BUSY. STOP (strobe) ends the chain after the current group of cycles. PAUSE holds it while set. CPUSHARE: the cycle 0s the CPU keeps during this channel's HIGH jobs: 0 = 1 in 2, 1 = 1 in 4 (default), 2 = 1 in 8 |
+| `+0x24` | CHCTRL | START (0), RUN (1), STOP (2), PAUSE (3) | START (strobe): load the descriptor at CHDESC into the job registers and run it. RUN (strobe): run the job already in the job registers. Either way, at the end of the job the channel loads the descriptor at NEXT and runs it, until NEXT is 0. Both are ignored while BUSY. STOP (strobe) ends the chain after the current group of cycles. PAUSE holds it while set. (Bits 5–4 were CPUSHARE; they are gone, and read as 0) |
 | `+0x28` | CHSTAT | BUSY (0), DONE (1), ERR (2), PAUSED (3) | BUSY: a chain is running (or paused). DONE: a chain reached its end (NEXT = 0) or was stopped. ERR: a job stopped with an error (DONE stays clear). DONE and ERR are sticky, write 1 to clear |
 | `+0x2C` | CHERR | 23–0 | The address that caused the error, or the descriptor's address (CHDESC) for a bad descriptor. A job started with RUN has no descriptor, so a bad CTRL then gives whatever CHDESC holds (0 after reset) |
 
@@ -319,7 +320,7 @@ Software decides, but a sensible default:
 - **Chains:** a chain of mixed jobs in Chip RAM and in the descriptor RAM; IRQ only on the marked ones; jobs of zero width or height.
 - **Direct jobs:** a job written into the job registers and started with RUN, with and without a NEXT chain after it; job register writes ignored while BUSY; the job registers read back as loaded.
 - **Channels:** all 4 running at once; a stalled port channel does not hold up the others; STOP and PAUSE.
-- **Priority:** normal jobs never delay the CPU; HIGH jobs leave the CPU at least its CPUSHARE of cycle 0s (all three settings), and every CPU delay is one slot.
+- **Priority:** normal jobs never delay the CPU; a HIGH job, or a slot plan that makes the engine owner of every cycle, does (`dtest` T18, T19: 32 CPU reads of Chip RAM timed during a job).
 - **Errors:** a bad address (including the system area and past the end of a 2 MB board's RAM), a reserved OP, MASK = 3 and a bad combination stop only that channel, set ERR and CHERR, and raise its interrupt.
 - **Registers:** a block copy into a layer's registers gives exactly the same result as CPU writes; a copy into CHCTRL that starts another channel works; register reads into memory; a palette written by a job changes each entry whole; a CPU register access is never delayed by the engine.
 - **Ports:** a USB serial transfer each way, paced by the FIFOs (with the FT232H model in `sim/`).

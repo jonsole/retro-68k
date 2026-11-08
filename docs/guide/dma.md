@@ -48,7 +48,7 @@ You should have read "Working with the Hardware Registers" in the Introduction a
 | Line drawing, area fill | Yes | No (version 2) |
 | Register writes | The copper only | The copper, or a job: block copies into the registers |
 | Disk and other transfers | Their own DMA channels | The same engine, through ports |
-| Priority | BLTPRI ("blitter nasty") | The HIGH bit, per job, leaving the CPU a share |
+| Priority | BLTPRI ("blitter nasty") | The HIGH bit, per job; or a slot plan (MEMSLOT0–4) |
 
 ### Conventions in this chapter
 
@@ -59,7 +59,7 @@ You should have read "Working with the Hardware Registers" in the Introduction a
 ```asm
 COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)       ; BLIT D = B, 8 bits per pixel
 FILL8       equ     COPY8|(DMX_KIND_VALUE<<DMX_CTRL_BKIND_B)            ; the same, B is VALUE: a fill
-RUNIT       equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)         ; RUN, CPU share 1 in 4
+RUNIT       equ     DMX_CHCTRL_RUN_M                                    ; RUN
 ```
 
 ---
@@ -165,7 +165,7 @@ Each channel has these registers. The first eight are the **job registers**; a *
 | `$18` | VALUE | 31–0 | B's constant when BKIND = VALUE (a fill), and the key colour for MASK = 2 |
 | `$1C` | NEXT | 23–0 | The next descriptor; 0 = the last job |
 | `$20` | CHDESC | 23–0 | The descriptor START loads |
-| `$24` | CHCTRL | START (0), RUN (1), STOP (2), PAUSE (3), CPUSHARE (5–4) | Control |
+| `$24` | CHCTRL | START (0), RUN (1), STOP (2), PAUSE (3) | Control |
 | `$28` | CHSTAT | BUSY (0), DONE (1), ERR (2), PAUSED (3) | Status; DONE and ERR are sticky, write 1 to clear |
 | `$2C` | CHERR | 23–0 | The address that caused an error |
 
@@ -447,7 +447,7 @@ DLIST       equ     CUSTOM+DESCRAM
 .copy:      move.l  (a1)+,(a2)+                 ; the descriptors into the descriptor RAM
             dbra    d0,.copy
             move.l  #DLIST,DMX3+DMX_CHDESC(a4)
-            move.l  #DMX_CHCTRL_START_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX3+DMX_CHCTRL(a4)
+            move.l  #DMX_CHCTRL_START_M,DMX3+DMX_CHCTRL(a4)
             rts
 
 ;           CTRL            BPT          DPT                   SIZE         APT STRIDE       VALUE NEXT
@@ -567,7 +567,9 @@ dmx3_int:   move.l  #1<<3,DMXINT(a4)            ; channel 3's interrupt: clear i
 
 The engine uses memory cycles the display, sprites, audio and the copper do not need, and cycle 0 when the CPU is not using it, so **a normal job never slows the CPU**. Its four channels take turns, a group of up to 8 words each.
 
-A job with **HIGH** (CTRL bit 11) may also take the CPU's own cycle 0, but leaves the CPU a share of them: 1 in 2, 1 in 4 (the default) or 1 in 8 of those it asks for, set by the channel's **CPUSHARE** (CHCTRL bits 5–4: 0, 1, 2). Each cycle taken makes the CPU wait one slot (100 ns). Use HIGH when the CPU would only be waiting for the job anyway.
+A job with **HIGH** (CTRL bit 11) owns the CPU's cycle 0 while it runs, and goes first for every cycle its owners leave: ahead of the CPU, audio and the display's fetches that are not urgent. The display keeps its own cycles and its urgent fetches. **The CPU gets only the cycles the job leaves, so a long HIGH job can hold the CPU off, interrupts included.** In practice a single channel leaves about one cycle in ten between its groups of 8 words, and the CPU slips in there, but nothing promises it. Use HIGH when the CPU would only be waiting for the job anyway.
+
+The slot plan (MEMSLOT0–4, in the Introduction and System Control Hardware chapter) can make the engine the owner of cycles for every job, without HIGH: `move.b #MEMSLOT0_BLT_M,MEMSLOT0+3(a4)` gives it cycle 0 in place of the CPU, until `move.b #MEMSLOT0_CPU_M,MEMSLOT0+3(a4)` gives it back.
 
 How fast a job runs depends on the screen and on the CPU. Some figures for a 576p line (32 µs), worked out from the slot rules:
 
@@ -595,7 +597,7 @@ Jobs that read the destination (a minterm that uses C, and ADD) run at about two
 | VALUE | DMXn + `$18` | RW | Constant B, key colour |
 | NEXT | DMXn + `$1C` | RW | Next descriptor (23–0), 0 = none |
 | CHDESC | DMXn + `$20` | RW | Descriptor START loads (23–0) |
-| CHCTRL | DMXn + `$24` | RW | START (0), RUN (1), STOP (2), PAUSE (3), CPUSHARE (5–4) |
+| CHCTRL | DMXn + `$24` | RW | START (0), RUN (1), STOP (2), PAUSE (3) |
 | CHSTAT | DMXn + `$28` | RW1C | BUSY (0), DONE (1), ERR (2), PAUSED (3) |
 | CHERR | DMXn + `$2C` | R | Address of the error (23–0) |
 | DMXINT | `$3F0` | W1C | CH (3–0): interrupt pending |

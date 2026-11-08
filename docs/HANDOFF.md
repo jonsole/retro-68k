@@ -65,7 +65,7 @@ Done and tested in simulation:
 
 | Part | Files | Tests |
 |------|-------|-------|
-| CPU, bus, SRAM, scheduler (`dmac.v`, with HIGH and CPUSHARE), boot ROM (second port for DMA) | `fpga/rtl/`, `firmware/boot/boot.s` | boot |
+| CPU, bus, SRAM, scheduler (retro-hw's generic `dmac.v`; the slot plan in MEMSLOT0–4; HIGH jobs and a nasty copper own cycle 0), boot ROM (second port for DMA) | `fpga/rtl/`, `firmware/boot/boot.s` | boot, dtest |
 | Video: 3 layers, planar/chunky, scaling, scroll, BPLSTRIDE, priority, direct colour, a palette per layer and one for the sprites (SHAREPAL for one) | `video.v`, `bpldma.v`, `layer_pix.v` | vtest pal, direct, share |
 | Sprites: 8, any size, 2/4/8 bpp, fractional scaling across and down (SPRxSTEP, 5.11, 16× to 1/16), depth, collisions, FIFO per sprite, changes while drawn, reuse down the screen, manual mode (SPRxDAT) | `sprites.v`, `sprite_pix.v`, `video.v` | vtest spr, share |
 | Copper: MOVE/WAIT/SKIP/JUMP, MOVR, ALU, SKIPC, CALL/RET, RESUME | `copper.v`, `firmware/include/copper.inc` | ctest |
@@ -105,5 +105,5 @@ In rough order:
 
 - Only the `spr` video screen is in CI (its own job, about an hour); `pal`, `direct` and `share` run locally.
 - Sprite open points (spec 9, section 9): S1, measure the memory budget table in simulation; S2, whether sprites' share of free cycles should be capped.
-- The DMA engine's speed figures (spec 11, section 7, open point D2) and the HIGH CPU shares are worked out, not measured.
+- The DMA engine's speed figures (spec 11, section 7, open point D2) are worked out, not measured.
 - The SD test covers single blocks; multi-block transfers (CMD18, CMD25) are left to software and untested.

@@ -83,8 +83,8 @@ The full list is in spec 7, section 8.
 
 Defined in [spec 5: memory architecture](spec/memory-architecture.md). In short:
 
-- **Amiga-style slots.** SRAM time is cut into 100 ns slots of 5 memory cycles (20 ns, 2 bytes each). **Cycle 0 of every slot belongs to the CPU**; cycles 1 and 3 to the display fetch; cycle 2 to audio and peripherals; cycle 4 is the free pool for the copper and the DMA engine. Cycles their owner doesn't use, including the CPU's, go to the free pool too.
-- **The 20 MHz CPU waits for Chip RAM only when the display needs it:** one DMA scheduler (`dmac.v`, like the Amiga's Agnus) gives out every cycle; an urgent bitplane fetch, or a copper set to "nasty" priority, may take the CPU's cycle 0, and that CPU access then waits one slot (spec 5, section 6).
+- **Amiga-style slots.** SRAM time is cut into 100 ns slots of 5 memory cycles (20 ns, 2 bytes each). **Cycle 0 of every slot belongs to the CPU**; cycles 1 and 3 to the display fetch; cycle 2 to audio and peripherals; cycle 4 is the free pool for the copper and the DMA engine. Cycles their owner doesn't use, including the CPU's, go to the free pool too. The plan is programmable (MEMSLOT0–4, spec 5, section 8.1).
+- **The 20 MHz CPU waits for Chip RAM only when the display needs it:** one DMA scheduler (`dmac.v`, like the Amiga's Agnus) gives out every cycle; an urgent bitplane fetch may take the CPU's cycle 0, and that CPU access then waits one slot; a copper set to "nasty" priority or a HIGH DMA engine job owns cycle 0 while it asks (spec 5, section 6).
 - **Chip RAM** = the 4 MB SRAM, shared with DMA. 100 MB/s in total.
 
 | Range | Size | Device |

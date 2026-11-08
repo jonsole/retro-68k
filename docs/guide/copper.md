@@ -321,7 +321,7 @@ A strobe from the CPU also wakes a copper that is waiting or stopped.
 |------|-------|---------|
 | 0 | EN | 1: the copper is on (DMACON.COPEN and DMACON.DMAEN must also be set) |
 | 1 | IRQEN | 1: a write to COPINT raises the copper interrupt |
-| 5–4 | PRI | The copper's priority for memory cycles: 0 normal, 1 high, 2 nasty (see "Copper Timing") |
+| 5–4 | PRI | The copper's priority for memory cycles: 0 normal, 1 high, 2 nasty, 3 as 1 (see "Copper Timing") |
 
 ```asm
         move.l  #COPCON_EN_M|(0<<COPCON_PRI_B),COPCON(a4)  ; on, normal priority
@@ -1398,9 +1398,9 @@ Normally the copper takes cycle 4 and leftover cycles, after the display and the
 
 | PRI | Name | The copper gets |
 |-----|------|-----------------|
-| 0 | Normal | Cycle 4 and the cycles nobody else wants, after the display and audio (the default) |
-| 1 | High | Cycle 4 as its own, and first place among the leftover cycles: ahead of audio, the DMA engine and display fetches that are not urgent |
-| 2 | Nasty | As 1, and it may also take the CPU's cycle 0, like the Amiga's "blitter nasty" mode. The CPU's Chip RAM access then waits one slot (2 CPU clocks) |
+| 0 | Normal | Cycle 4 and the cycles nobody else wants, after the display and audio, ahead of the CPU and the DMA engine (the default) |
+| 1 | High | Cycle 4 as its own, and first place among the leftover cycles: ahead of audio, the DMA engine and display fetches that are not urgent. The display keeps its own cycles 1 and 3 |
+| 2 | Nasty | As 1, and while it has an instruction to fetch it owns the CPU's cycle 0, like the Amiga's "blitter nasty" mode. The CPU's Chip RAM accesses then wait for cycles the copper leaves |
 
 At every level, a display fetch that is about to be late still comes first, so raising the copper's priority never spoils the picture. And priority matters only while the copper has an instruction to fetch: while it waits, it takes nothing, whatever PRI says.
 
