@@ -202,7 +202,10 @@ module dmx #(
     reg  [2:0]  j_bbit, j_dbit, j_abit;
     reg  [15:0] j_width, j_height, j_bstr, j_dstr;
     reg  [31:0] j_val;
-    always @(posedge clk) if (su_v) case (su_i)
+    // HIGH goes to the scheduler, which sees it while the engine loads its
+    // first descriptor, before any job is decoded: so it is reset (X there
+    // would spread through the scheduler's rules in simulation)
+    always @(posedge clk) if (rst) j_high <= 1'b0; else if (su_v) case (su_i)
         3'd0: begin j_op <= jv[2:0]; j_sat <= jv[4]; j_sgn <= jv[5]; j_bpp <= jv[9:8]; j_desc <= jv[10];
                     j_high <= jv[11]; j_irq <= jv[12]; j_bk <= jv[14:13]; j_dk <= jv[16:15];
                     j_mask <= jv[18:17]; j_mt <= jv[31:24]; end
