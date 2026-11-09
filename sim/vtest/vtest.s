@@ -20,10 +20,22 @@
 ;              way down, a sprite reused lower down, a zoom, a wobble), and
 ;              sprite 2, reused lower down with its DMA off, is fed by the copper
 ;   -DSPRITES -DSHARE   the same with VIDCON.SHAREPAL: everything uses PALETTE0
+;   -DCTL      live layer settings (spec 4, section 5.4), changed by a copper
+;              list part way along lines: L0's depth (4 to 2 bpp) and its
+;              PALOFS, put back in the right border; a split screen (L1's
+;              pointers written after its last fetch on line 150); and L2's
+;              pointer's low half written mid-line, on lines 300-340
 ;
 ; Keep the layouts in step with vgen.py.
 
             include "hw.inc"
+
+    ifd SPRITES
+COPPER      equ     1                   ; a copper list runs
+    endif
+    ifd CTL
+COPPER      equ     1
+    endif
 
             org ROM
             dc.l    $010000             ; stack
@@ -48,7 +60,7 @@ start:      move.w  #$2700,sr
             lea     setup(pc),a0
             bsr     regs
             bsr     ptrs
-    ifd SPRITES
+    ifd COPPER
             ; the copper list into Chip RAM, and the copper on
             lea     clist(pc),a0
             lea     RAMLIST,a1
@@ -102,6 +114,93 @@ hang:       bra.s   hang
 s_pass:     dc.b    "PASS",13,10,0
             even
 
+    ifd CTL
+; ---------------------------------------------------------------- live CTRL
+VIDCON_VALUE equ VIDCON_EN_M
+
+; L0: chunky 4 bpp, 1x, window 0-640 x 0-576, fine scroll 3, transparent,
+; PALOFS 2; rows of 328 bytes. The copper makes it 2 bpp, or PALOFS 13,
+; from part way along some lines, and puts it back in the right border
+L0_DATA     equ $100000
+L0_ROW      equ 328
+L0C_BASE    equ L_CTRL_EN_M|(2<<L_CTRL_BPP_B)|L_CTRL_TRANSP_M|(2<<L_CTRL_PALOFS_B)
+L0C_DEP     equ (L0C_BASE&~L_CTRL_BPP_M)|(1<<L_CTRL_BPP_B)
+L0C_PAL     equ (L0C_BASE&~L_CTRL_PALOFS_M)|(13<<L_CTRL_PALOFS_B)
+; L1: 2 planes, separate, 2x across, window 200-480 x 0-576, fine scroll 5,
+; transparent; plane rows of 20 bytes. From line 151 a second picture
+; (L1_ALT), its pointers written by the copper after line 150's last fetch
+L1_DATA     equ $140000
+L1_ROW      equ 20
+L1_PLANE    equ L1_ROW*576
+L1_ALT      equ $150000
+; L2: chunky 1 bpp, 1x, the whole screen, solid, PALOFS 9; rows of 96 bytes.
+; On lines 300-340 the copper writes the low half of its pointer mid-line
+; (the high half stays): the rest of the line from L2_ALT, the next line
+; from L2_ALT + 96
+L2_DATA     equ $180000
+L2_ROW      equ 96
+L2_ALT      equ $18E000
+RAMLIST     equ $020000             ; the copper list
+
+setup:      dc.l    L0+L_CTRL,   L0C_BASE
+            dc.l    L0+L_WINX,   ((VID_X0+0)<<16)|(VID_X0+640)
+            dc.l    L0+L_WINY,   ((VID_Y0+0)<<16)|(VID_Y0+576)
+            dc.l    L0+L_SCROLLX, 3
+            dc.l    L0+L_BPLSTRIDE, L0_ROW
+            dc.l    L1+L_CTRL,   L_CTRL_EN_M|L_CTRL_PLANAR_M|(1<<L_CTRL_PLANES_B)|(1<<L_CTRL_HSCALE_B)|L_CTRL_TRANSP_M|(6<<L_CTRL_PALOFS_B)
+            dc.l    L1+L_WINX,   ((VID_X0+200)<<16)|(VID_X0+480)
+            dc.l    L1+L_WINY,   ((VID_Y0+0)<<16)|(VID_Y0+576)
+            dc.l    L1+L_SCROLLX, 5
+            dc.l    L1+L_BPLSTRIDE, L1_ROW
+            dc.l    L2+L_CTRL,   L_CTRL_EN_M|(9<<L_CTRL_PALOFS_B)
+            dc.l    L2+L_WINX,   ((VID_X0+0)<<16)|(VID_X0+720)
+            dc.l    L2+L_WINY,   ((VID_Y0+0)<<16)|(VID_Y0+576)
+            dc.l    L2+L_BPLSTRIDE, L2_ROW
+            dc.l    PRIO,        (2<<4)|(0<<2)|1 ; L1 in front, then L0, then L2
+            dc.l    -1
+
+pointers:   dc.l    L0+L_BPL0PT, L0_DATA
+            dc.l    L1+L_BPL0PT, L1_DATA
+            dc.l    L1+L_BPL1PT, L1_DATA+L1_PLANE
+            dc.l    L2+L_BPL0PT, L2_DATA
+            dc.l    -1
+
+; The copper. Beam pixels: the picture starts at VID_X0 (144). L0's source
+; pixel at picture x is x + 3, so picture 257 is pixel 4 of group 16
+            include "copper.inc"
+            cnop    0,4
+clist:      CWAIT   VID_Y0+20,VID_X0+257        ; lines 20-60: 2 bpp from about group 18
+dep_loop:   CMOVE   L0+L_CTRL+2,L0C_DEP
+            CWAITP  820                         ; the right border: L0's window ended at 784
+            CMOVE   L0+L_CTRL+2,L0C_BASE
+            CSKIP   VID_Y0+60,0                 ; line 60 done: on
+            CJUMP   RAMLIST+(dep_next-clist)
+            CJUMP   RAMLIST+(dep_end-clist)
+dep_next:   CWAITP  VID_X0+257
+            CJUMP   RAMLIST+(dep_loop-clist)
+dep_end:
+            CWAIT   VID_Y0+80,VID_X0+356        ; lines 80-120: PALOFS 13 from about picture 356
+pal_loop:   CMOVE   L0+L_CTRL+2,L0C_PAL
+            CWAITP  820
+            CMOVE   L0+L_CTRL+2,L0C_BASE
+            CSKIP   VID_Y0+120,0
+            CJUMP   RAMLIST+(pal_next-clist)
+            CJUMP   RAMLIST+(pal_end-clist)
+pal_next:   CWAITP  VID_X0+356
+            CJUMP   RAMLIST+(pal_loop-clist)
+pal_end:    CWAIT   VID_Y0+150,640              ; line 150's right border: L1's window ended at 624
+            CMOVEL  L1+L_BPL0PT,L1_ALT
+            CMOVEL  L1+L_BPL1PT,L1_ALT+L1_PLANE
+            CWAIT   VID_Y0+300,VID_X0+408       ; lines 300-340: L2's pointer from about group 27
+ptr_loop:   CMOVE   L2+L_BPL0PT+2,L2_ALT&$FFFF
+            CSKIP   VID_Y0+340,0                ; line 340 done: on
+            CJUMP   RAMLIST+(ptr_next-clist)
+            CJUMP   RAMLIST+(ptr_end-clist)
+ptr_next:   CWAITP  VID_X0+408
+            CJUMP   RAMLIST+(ptr_loop-clist)
+ptr_end:    CSTOP
+clist_end:
+    else
     ifd SPRITES
 ; ---------------------------------------------------------------- sprites
     ifd SHARE
@@ -319,5 +418,6 @@ pointers:   dc.l    L0+L_BPL0PT, L0_DATA+0*L0_PLANE
             dc.l    L2+L_BPL2PT, L2_DATA+2*L2_PLANE
             dc.l    L2+L_BPL3PT, L2_DATA+3*L2_PLANE
             dc.l    -1
+    endif
     endif
     endif

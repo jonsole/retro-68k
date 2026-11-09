@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Picture data for the video test (vtest.s): random words in Chip RAM.
 
-    vgen.py OUT.hex [--direct | --sprites]
+    vgen.py OUT.hex [--direct | --sprites | --ctl]
 
 Writes a $readmemh file of 16-bit words (with @word-address lines) for the
 testbench's +ram= option. The data is random, so every pixel of every layer
@@ -16,7 +16,8 @@ def main():
     out = sys.argv[1]
     direct = "--direct" in sys.argv
     sprites = "--sprites" in sys.argv
-    rnd = random.Random(68000 + direct + 2 * sprites)
+    ctl = "--ctl" in sys.argv
+    rnd = random.Random(68000 + direct + 2 * sprites + 4 * ctl)
     mem = {}                                   # word address -> value
 
     def fill(start, nbytes, zero_bytes=0.0):
@@ -26,7 +27,12 @@ def main():
                 b.append(0 if rnd.random() < zero_bytes else rnd.randrange(256))
             mem[a // 2] = (b[0] << 8) | b[1]
 
-    if sprites:
+    if ctl:
+        fill(0x100000, 328 * 576 + 64, 0.3)    # L0: 4 bpp, rows of 328 bytes
+        fill(0x140000, 2 * 20 * 576 + 64, 0.3) # L1: 2 planes of 576 rows of 20 bytes ...
+        fill(0x150000, 2 * 20 * 576 + 64, 0.3) # ... and the second picture, after the split
+        fill(0x180000, 0x16000)                # L2: 1 bpp, rows of 96 bytes, and from L2_ALT ($18E000)
+    elif sprites:
         fill(0x100000, 180 * 288 + 64, 0.3)    # L0: 4 bpp, rows of 180 bytes
         fill(0x140000, 3 * 40 * 300 + 64, 0.3) # L1: 3 planes of 300 rows of 40 bytes
         fill(0x180000, 0x9000, 0.3)            # the sprite images

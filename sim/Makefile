@@ -22,8 +22,8 @@ HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/f
 HW    := $(ROOT)/fpga/retro-hw
 HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v
 HW    := $(ROOT)/fpga/retro-hw
-HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/dmx_core.v
-RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/bpldma.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/blitter.v $(HW)/rtl/layer_fetch.v
+RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
 SIM_SRC := $(HW)/platform/sim/oddr.v $(HW)/sim/sram_model.v $(HW)/sim/ft232h_model.v sd_model.v $(HW)/sim/ps2_model.v tb.v
 
 .PHONY: vtest ctest atest dtest iotest rtest serial cresume all run frame clean
@@ -62,20 +62,23 @@ frame: $(BUILD)/tb.vvp $(BUILD)/boot.hex $(BUILD)/microrom.mem
 # Video test (spec 4): random pictures in every layer format, checked pixel by
 # pixel against a Python model (vtest/vmodel.py); a palette screen and a
 # direct-colour screen and a sprite screen, and the sprite screen again
-# with every layer and sprite on PALETTE0 (VIDCON.SHAREPAL)
-VTESTS = pal direct spr share
+# with every layer and sprite on PALETTE0 (VIDCON.SHAREPAL); and a screen
+# whose layer settings and pointers a copper changes part way along lines
+VTESTS = pal direct spr share ctl
 vtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	@set -e; for t in $(VTESTS); do \
 	    d=$(BUILD)/vtest_$$t; mkdir -p $$d; \
 	    flag=; gen=; [ $$t = direct ] && flag=-DDIRECT && gen=--direct; \
-	    [ $$t = spr ] && flag=-DSPRITES && gen=--sprites; 	    [ $$t = share ] && flag="-DSPRITES -DSHARE" && gen=--sprites; \
+	    [ $$t = spr ] && flag=-DSPRITES && gen=--sprites; \
+	    [ $$t = share ] && flag="-DSPRITES -DSHARE" && gen=--sprites; \
+	    live=; [ $$t = ctl ] && flag=-DCTL && gen=--ctl && live=--live; \
 	    $(VASM) -quiet -Fbin $$flag -I $(ROOT)/firmware/include -o $$d/vtest.bin vtest/vtest.s; \
 	    python3 $(ROOT)/tools/bin2hex.py $$d/vtest.bin $$d/vtest.hex; \
 	    python3 vtest/vgen.py $$d/ram.hex $$gen; \
 	    cp $(BUILD)/microrom.mem $(BUILD)/nanorom.mem $$d/; \
 	    (cd $$d && $(VVP) -n ../tb.vvp +frame +rom=vtest.hex +ram=ram.hex > sim.log); \
 	    grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
-	    python3 vtest/vmodel.py $$d $$d/ram.hex $$d/model.png; \
+	    python3 vtest/vmodel.py $$d $$d/ram.hex $$d/model.png $$live; \
 	done
 
 # Copper test (spec 10): a self-checking ROM (registers, ALU, conditions,
