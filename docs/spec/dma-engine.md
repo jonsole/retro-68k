@@ -297,7 +297,7 @@ Software decides, but a sensible default:
 | Item | Resource |
 |------|----------|
 | Descriptor RAM, 2 KB | 1 block RAM |
-| Per-channel state (the running descriptor's fields and positions) | Distributed RAM, one channel worked on at a time (as in `bpldma.v` and `sprites.v`) |
+| Per-channel state (the running descriptor's fields and positions) | Distributed RAM, one channel worked on at a time (as in the layer fetch and `sprites.v`) |
 | Data buffer between reads and writes (16 bytes and the shifter's carry) | Logic |
 | The shared datapath: 2D address units, pixel shifter, the mask's shift register, edge masks, colour key compare, minterm, per-pixel adder, the access unit, ports | About 2,300 LUTs in all, and 2 DSP slices (a backwards job's start: rows × stride) (Vivado). Timing met at 100 MHz |
 

@@ -885,6 +885,7 @@ The timing comes from "Writing new pointers partway down" in the playfield chapt
 - **CTRL** for line L + 1 must be written during the visible part of line L (before the end of line L, beam pixel 864, where line L + 1's horizontal blank starts).
 - **The pointers** for line L + 1 must be written after the layer's last fetch on line L, and before line L + 1 starts. The layer stops fetching about 32 source pixels (here 64 screen pixels) before its window's right edge, at beam pixel 824 (picture pixel 680), so the gap is from about beam pixel 760 to the end of the line, 864.
 - A pointer written in that gap is used as written: it is the start of line L + 1, and nothing is added to it. BPLSTRIDE stays 40, which suits the panel too, since its planes are also 40 bytes per line.
+- Write each pointer whole (`CMOVEL`, high half first). In the gap a pointer reads as the end of line L's words, and a MOVE of one half merges with that.
 - With vertical scaling, the split must come after the **last** copy of a source line. At 2× down, starting at line 32, the copies are lines 32 and 33, 34 and 35, and so on; line 415 is a last copy.
 
 So the list waits for beam pixel 792 (picture pixel 648) on line 415 and writes three registers: six MOVEs, which must all be done by the end of the line, beam pixel 864. The first is already fetched; at normal priority each of the others may take about 200 ns, so the last lands near beam pixel 819. That fits, but on a busy screen other DMA could hold the copper up. Setting COPCON.PRI to 1 makes sure it is not (see "Copper Timing").
@@ -1364,12 +1365,16 @@ The copper's writes take effect exactly as the CPU's do:
 | Registers | Take effect |
 |-----------|-------------|
 | Palette, VIDCON.DIRECT, VIDCON.BLANKALL | At once, from the next pixel |
-| BPLxPT, BPLSTRIDE | At once: they are live. BPLSTRIDE is used when the line's last word is fetched. A copper write to a pointer wins over the display's own change in the same clock, and also sets the pointer's saved line start |
+| BPLxPT, BPLSTRIDE | At once: they are live. BPLSTRIDE is used when the pointers are reset, at the start of the next line's horizontal blank. A copper write to a pointer wins over the display's own change in the same clock, and also sets the pointer's saved line start |
 | BPLxDAT | At once; a write of BPL0DAT completes a group for a layer with no DMA |
-| CTRL, WINX, WINY, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during the visible part of line L − 1 |
+| CTRL.EN, VSCALE, WINX, WINY, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during the visible part of line L − 1 |
+| CTRL.BPP, PLANAR, PLANES, HSCALE | From the layer's next group fetched: 16–32 source pixels after the beam |
+| CTRL.TRANSP, PALOFS | From the next pixel |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144): write in line L's horizontal blank, or earlier, to change line L |
 
 A good rule: make changes for line L in its horizontal blank, after `CWAIT VID_Y0+L,0`, except CTRL, WINX, WINY and SCROLLX, which must be written before the end of the line before, and the plane pointers, which have their own window (Example 5-9).
+
+CTRL's depth and palette block can also change partway along a line, for an effect: a PALOFS write shows from the next pixel, like a colour change (the one pixel where it changes may show a mix of the old and new blocks); a depth or PLANAR write shows from the layer's next group fetched, one or two groups (16–32 source pixels) past the beam, never in the middle of a group. Put the setting back in the right border, after the layer's window, so the next line starts as before. A scale (HSCALE) changed partway along a line upsets the line's group count: see the playfield chapter.
 
 ### How fast the copper runs
 
