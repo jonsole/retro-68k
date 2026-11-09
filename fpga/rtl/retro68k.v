@@ -213,7 +213,6 @@ module retro68k #(
     wire        disp_req, disp_urgent, disp_ack, disp_rvalid;
     wire        spr_req, spr_urgent, spr_ack, spr_rvalid;
     wire [21:1] spr_addr;
-    wire [9:0]  spr_deadline;              // the scheduler no longer uses it (spec 5, section 6); tb.v shows it
     wire [21:1] disp_addr;
     wire        aud_req, aud_ack, aud_rvalid;
     wire [21:1] aud_addr;
@@ -315,9 +314,9 @@ module retro68k #(
         .rb_rdata(rd_vid),
         .irq_vblank(irq_vblank), .irq_line(irq_line), .irq_viderr(irq_viderr),
         .line_tick(line_tick), .frame_tick(frame_tick), .beam_v(beam_v), .beam_h(beam_h),
-        .dmacon(dmacon), .memplan(memplan), .disp_req(disp_req), .disp_urgent(disp_urgent), .disp_deadline(), .disp_addr(disp_addr),
+        .dmacon(dmacon), .memplan(memplan), .disp_req(disp_req), .disp_urgent(disp_urgent), .disp_addr(disp_addr),
         .disp_ack(disp_ack), .disp_rvalid(disp_rvalid), .disp_rdata(mem_rdata),
-        .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
+        .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_addr(spr_addr),
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
