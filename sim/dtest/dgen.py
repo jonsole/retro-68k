@@ -157,6 +157,12 @@ def main():
             z["height"] = 0
         chains[n].insert(rng.randrange(1, len(chains[n])), z)
 
+    # The first job after reset reads C. The core does not reset the register
+    # that holds C, and a job that never reads it (an aligned fill, say)
+    # would write unknown bits in simulation (in hardware the bits cancel):
+    # the SRAM model counts those as errors.
+    chains[0][0]["minterm"] = 0x66
+
     def wl(a, v):
         mem[a:a + 4] = v.to_bytes(4, "big")
 
