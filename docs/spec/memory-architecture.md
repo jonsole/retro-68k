@@ -2,7 +2,7 @@
 
 Status: **v1 scope**
 
-This spec describes how the CPU, video, audio, the copper and the blitter share the KS3's fast SRAM. It follows the Amiga's model: memory time is cut into fixed **slots**, and each slot's memory cycles have fixed owners, so every user's bandwidth is guaranteed.
+This spec describes how the CPU, video, audio, the copper, the blitter and the rasteriser share the KS3's fast SRAM. It follows the Amiga's model: memory time is cut into fixed **slots**, and each slot's memory cycles have fixed owners, so every user's bandwidth is guaranteed.
 
 The SRAM is fast enough to give the CPU its own memory cycle in **every** slot, so the CPU normally never waits for the display, audio, copper or blitter, and there is no even/odd alignment to keep. As on the Amiga, the bitplane DMA may take the CPU's cycle when it would otherwise be late (section 6); the CPU then waits one slot. One scheduler, the DMA controller (`dmac.v` in retro-hw, the equivalent of the Amiga's Agnus), gives out every memory cycle, following a slot plan that software can change (section 8.1).
 
@@ -83,7 +83,7 @@ Each 100 ns slot holds 5 memory cycles:
 | 1 | Display fetch | Layers (spec 4, section 5), then sprites (spec 9). If neither needs it, it goes to the free pool |
 | 2 | Audio and peripherals | Audio channels (spec 6). In version 1 nothing else uses it; unused cycles go to the free pool |
 | 3 | Display fetch | Layers and sprites, as cycle 1. The display's two cycles are 40 and 60 ns apart, not side by side, so a fetch that has just missed one waits at most 60 ns for the next (spec 4, section 5.6) |
-| 4 | Free pool | Owned by nobody: the copper, the blitter and anyone else, by number (section 6) |
+| 4 | Free pool | Owned by nobody: the copper, the blitter, the rasteriser and anyone else, by number (section 6) |
 
 This is the default plan, the one the MEMSLOT registers hold after reset. Software can change it (section 8.1).
 
@@ -137,7 +137,8 @@ A requester's number is its priority: wherever two meet in the same rule, the lo
 | 3 | COP | Copper (spec 10) | – | COPCON.PRI 1 or more |
 | 4 | CPU | The 68000 | – | – |
 | 5 | BLT | The blitter (spec 11) | – | – |
-| 6 | PORT | The DMA port: peripherals later; the tests use it now | – | – |
+| 6 | RAS | The rasteriser (spec 17) | – | – |
+| 7 | PORT | The DMA port: peripherals later; the tests use it now. It has no owner bit in the slot plan, so it gets spare cycles only | – | – |
 
 ### 6.2 The slot plan
 
@@ -150,7 +151,7 @@ For each cycle, the first rule that finds a request wins, and within a rule the 
 1. **A locked cycle's owner.** In a locked cycle, an owner that asks gets it.
 2. **An urgent request** (the layers before the sprites). It may take any cycle that is not locked, the CPU's cycle 0 included; the CPU's access then waits.
 3. **The cycle's owner.** In cycles 1 and 3 of the default plan the layers go before the sprites.
-4. **The spare cycles:** first a **high** request (a copper at PRI 1 or 2), then **anyone** who asks: layers, sprites, audio, copper, CPU, blitter, DMA port.
+4. **The spare cycles:** first a **high** request (a copper at PRI 1 or 2), then **anyone** who asks: layers, sprites, audio, copper, CPU, blitter, rasteriser, DMA port.
 
 So no cycle is wasted: whatever its owners leave goes to the next requester that wants one. The display can use cycle 0 when the CPU is not using it, and cycles 2 and 4 when audio leaves them. The CPU can use any cycle its turn in rule 4 gives it, so a read that misses its cycle 0 often gets a later cycle of the same slot.
 
@@ -190,6 +191,7 @@ If an owner doesn't need its cycle (the CPU is between accesses, no layer is fet
 | Audio, 4 channels of 8-bit samples | One word (2 samples) per channel at a time, as on the Amiga | Cycle 2: 20 MB/s |
 | Copper | 2 cycles per instruction | The free pool, first |
 | Blitter | – | The rest of the free pool: about 50–65 MB/s of memory cycles, depending on the screen. It uses a quarter to a third of them (spec 11, section 8) |
+| Rasteriser | – | What the blitter leaves. It asks for a cycle only now and then (spec 17, section 6), so the two run side by side |
 
 During vertical blanking (49 of the 625 lines) there is no display fetch, so cycles 1 and 3 go to the free pool too. In the horizontal blank (144 of the 864 pixels) the display fetches only the first two groups of each layer's next line.
 
@@ -209,7 +211,7 @@ The bits are where the Amiga has them:
 | 9 | DMAEN | Master enable for everything below |
 | 8 | BPLEN | Bitplane DMA for all layers (each plane also has its own enable in its layer's BPLDMA; spec 4, section 5.5) |
 | 7 | COPEN | Copper |
-| 6 | BLTEN | The blitter (spec 11) |
+| 6 | BLTEN | The blitter (spec 11) and the rasteriser (spec 17) |
 | 5 | SPREN | Sprite DMA (spec 9) |
 | 4 | – | Unused |
 | 3–0 | AUD3EN–AUD0EN | Audio channels 3–0 (spec 6) |
@@ -228,10 +230,10 @@ Five registers, **MEMSLOT0–MEMSLOT4** at `0xE00098`–`0xE000A8`, one per cycl
 | 3 | COP | The copper owns it |
 | 4 | CPU | The CPU owns it |
 | 5 | BLT | The blitter owns it |
-| 6 | PORT | The DMA port owns it |
+| 6 | RAS | The rasteriser owns it |
 | 7 | LOCK | An urgent request may not take this cycle from an owner that asks |
 
-The bits are the requesters' numbers (section 6.1). After a reset (and the 68000's RESET instruction, which resets the custom hardware) they hold the default plan:
+The bits are the requesters' numbers (section 6.1). Requester 7, the DMA port, has no bit: it never owns a cycle. (Until the rasteriser came, bit 6 was the port's.) After a reset (and the 68000's RESET instruction, which resets the custom hardware) they hold the default plan:
 
 | Register | Value | Owners |
 |----------|-------|--------|

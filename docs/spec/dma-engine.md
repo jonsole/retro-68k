@@ -4,7 +4,7 @@ Status: **version 2, for review**. Rebuilt on 10 November 2026 on retro-hw's red
 
 The blitter works on rectangles of pixels in Chip RAM: it copies, fills, combines and cuts out, while the CPU carries on with other work. Each destination pixel is a logic function (the minterm) of a mask A, a source B and the destination's old contents C, as in the Amiga's blitter. A job can name a next job, so a list of jobs runs with no CPU in between.
 
-**What changed from version 1, and why.** Version 1 was a 4-channel DMA engine: BLIT and ADD jobs, peripheral ports (the SD card, the serial link), the custom registers, palettes and boot ROM as job memory, a 2 KB descriptor RAM, a HIGH bit to take the CPU's memory cycles, PAUSE, timer starts and an address range check. Its shared core tried to do too much (retro-hw's own words) and was about 2,750 LUTs here; the redesign is about 1,060 (Vivado, the core alone). It became three cores: this one for rectangles; `raster` for lines and triangles; `geom` for 3D points. This spec follows the new blitter core:
+**What changed from version 1, and why.** Version 1 was a 4-channel DMA engine: BLIT and ADD jobs, peripheral ports (the SD card, the serial link), the custom registers, palettes and boot ROM as job memory, a 2 KB descriptor RAM, a HIGH bit to take the CPU's memory cycles, PAUSE, timer starts and an address range check. Its shared core tried to do too much (retro-hw's own words) and was about 2,750 LUTs here; the redesign is about 1,060 (Vivado, the core alone). It became three cores: this one for rectangles; `raster` for lines and triangles (spec 17); `geom` for 3D points. This spec follows the new blitter core:
 
 | Version 1 | Now |
 |-----------|-----|
@@ -19,7 +19,7 @@ The blitter works on rectangles of pixels in Chip RAM: it copies, fills, combine
 | A and B shared a stride | A has its own (ASTRIDE): old open point D6 is closed |
 | VALUE 32 bits, also the key colour | VALUE 16 bits (one memory word of pixels); KEY is its own field |
 | A destination word left unchanged was not written | Every destination word of the row is written; C is read first when the minterm needs it |
-| LINE planned as an OP of this engine | Lines and triangles are the `raster` core's, with its own registers, in the next change (open point D3) |
+| LINE planned as an OP of this engine | Lines and triangles are the rasteriser's, a unit of its own beside the blitter (spec 17) |
 
 The job registers keep their version 1 places where the field still exists. Software written for version 1 needs porting: the CTRL bits, VALUE and the control registers differ.
 
@@ -51,7 +51,7 @@ The job registers keep their version 1 places where the field still exists. Soft
 | Edge masks | First-word and last-word mask registers | Automatic, from the starting pixel and the width |
 | Overlapping copies | Descending mode | RTL for rows, negative strides for bottom-up |
 | Priority | BLTPRI ("blitter nasty") for all blits | The slot plan (spec 5, section 8.1) |
-| Line drawing, area fill | Yes | Not here: the `raster` core, next (open point D3) |
+| Line drawing, area fill | Yes | Not here: the rasteriser (spec 17) draws lines and fills triangles |
 
 ## 3. The job
 
@@ -203,7 +203,7 @@ The custom registers, the palettes, the boot ROM and the system block cannot be 
 
 ## 5. Memory cycles
 
-The blitter is requester 5 (BLT) of the memory scheduler (spec 5, section 6): in the spare-cycle order after the display, audio, the copper and the CPU, ahead of the DMA port.
+The blitter is requester 5 (BLT) of the memory scheduler (spec 5, section 6): in the spare-cycle order after the display, audio, the copper and the CPU, ahead of the rasteriser (spec 17) and the DMA port.
 
 - **One memory cycle** (20 ns) reads or writes 2 bytes at an even address, with byte selects for single bytes (spec 5, section 4.2).
 - **The blitter uses cycles nobody else wants**: cycle 4, cycle 2 when audio isn't using it, display cycles (1 and 3) no layer or sprite needs, and cycle 0 whenever the CPU isn't using it. **The CPU is never slowed** (with the default slot plan, spec 5, section 8.1).
@@ -257,14 +257,14 @@ Offsets in the custom block at `0xE00000` (spec 3, section 3.5). The job registe
 | `0x320` | BLTDESC | ADDR 23–0 | The descriptor START loads. Read: the descriptor running, or the last one loaded. Bit 0 and bits 23–22 are not kept. Writes are ignored while BUSY |
 | `0x324` | BLTCMD | START (0), RUN (1), STOP (2) | Write only, strobes. START: load the descriptor at BLTDESC into the job registers and run it. RUN: run the job already in the job registers. Either way, at the end of a job with BLTNEXT not 0, BLTDESC becomes BLTNEXT and that descriptor is loaded and run. START and RUN are ignored while BUSY; START wins over RUN. STOP ends the job after the destination word in hand; the chain is not followed, and the job cannot be resumed. STOP is ignored while idle |
 | `0x328` | BLTSTAT | BUSY (0), ERR (2) | Read only. BUSY: a job or a chain is running. ERR: the last job stopped on an error; cleared by the next START or RUN |
-| `0x3F0` | DMXINT | BLT (0) | Set when a job with IRQ ends, and whenever the blitter stops: the chain's end, STOP, an error. Write 1 to clear. A flag that comes due in the same clock as the write stays set, so none is lost |
-| `0x3F4` | DMXINTEN | BLT (0) | Interrupt enable |
+| `0x3F0` | DMXINT | BLT (0), RAS (1) | BLT is set when a job with IRQ ends, and whenever the blitter stops: the chain's end, STOP, an error. Write 1 to clear. A flag that comes due in the same clock as the write stays set, so none is lost. RAS is the rasteriser's (spec 17) |
+| `0x3F4` | DMXINTEN | BLT (0), RAS (1) | Interrupt enables |
 
 **The job registers** can be written while the blitter is idle; writes are ignored while BUSY. A descriptor load overwrites all eight. They hold the job as loaded or written: the blitter's progress is kept inside it, not in them. So after a job, writing only the fields that change (for example BLTBPT and BLTDPT) and RUN starts a similar one, which suits the copper: a few MOVEs set up and start a blit with nothing in memory.
 
-**DMACON** (spec 5, section 8): bit 6, **BLTEN**, with DMAEN, lets the blitter use memory cycles. While it is clear a running job waits before its next memory access (BUSY stays set).
+**DMACON** (spec 5, section 8): bit 6, **BLTEN**, with DMAEN, lets the blitter use memory cycles. While it is clear a running job waits before its next memory access (BUSY stays set). The same bit holds the rasteriser.
 
-**Interrupts:** the blitter is source 4 (BLT) of the interrupt controller (spec 13), default level 4. It requests its interrupt while DMXINT.BLT and DMXINTEN.BLT are both set. (DMXINT keeps its version 1 name and place; bits 3–1 were channels 1–3.)
+**Interrupts:** the blitter is source 4 (BLT) of the interrupt controller (spec 13), default level 4. It requests its interrupt while DMXINT.BLT and DMXINTEN.BLT are both set; the rasteriser shares the source, with the RAS bits (spec 17, section 7). (DMXINT keeps its version 1 name and place; bits 3–1 were channels 1–3.)
 
 **Errors:** MASK = 3 is the only one. It is found before the job writes anything: the job and the chain end, ERR and DMXINT.BLT are set, and BLTDESC still names the descriptor.
 
@@ -276,7 +276,7 @@ Offsets in the custom block at `0xE00000` (spec 3, section 3.5). The job registe
 2. A chain: write descriptors to Chip RAM, the first one's address to BLTDESC, then START to BLTCMD. (Or write the first job into the job registers, with BLTNEXT pointing at the rest, and RUN.)
 3. Carry on. Take the interrupt, or poll BLTSTAT.BUSY.
 
-The copper can also start jobs, for example to change a screen area at a set beam position, and its WAIT with the B bit waits until the blitter is idle (spec 10).
+The copper can also start jobs, for example to change a screen area at a set beam position, and its WAIT with the B bit waits until the blitter and the rasteriser are both idle (spec 10).
 
 ## 8. Speed
 
@@ -313,11 +313,11 @@ Version 1's engine was about 2,300 LUTs here. The whole design went from 16,555 
 |---|------|
 | D1 | Closed: built in Vivado (section 9) |
 | D2 | Measure the speed with a busy display and CPU, and on the board |
-| D3 | Lines and triangles: retro-hw's `raster` core (`fpga/retro-hw/docs/spec/raster.md`: LINE and TRI jobs, a clip window) gets its own wrapper and registers in the next change; `geom` (3D points) later still. They are separate cores, not operations of this one, so version 1's OP codes (LINE, span fill, triangle, MIX) are gone |
+| D3 | Closed: lines and triangles are the rasteriser's (spec 17), retro-hw's `raster` core with its own registers at `0x340`, beside the blitter in `dmx.v`. `geom` (3D points) is later still. They are separate cores, not operations of this one, so version 1's OP codes (LINE, span fill, triangle, MIX) are gone |
 | D4 | A FIFO mover for the SD card and the serial link (version 1's port jobs) is decided later (retro-hw's blitter spec, B3). Until then the CPU moves those bytes |
 | D5 | Reserved bits of the job registers are ignored, not an error (the core's `job_bad` is tied off). Software written for version 1's CTRL gets a wrong picture, not ERR |
 | D6 | Closed: the mask has its own stride (ASTRIDE) |
-| D7 | `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs, for the raster wrapper to share |
+| D7 | Closed: `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs; the rasteriser's wrapper is in it and shares them (bit 1, RAS) |
 | D8 | The core does not reset the register that holds C, so in simulation the first job after power-on writes unknown bits if it never reads C (an aligned fill). In hardware the bits cancel and the result is right. `dgen.py` and `dspeed.s` start with a job that reads C; a reset in retro-hw's `blitter.v` would be the proper cure |
 
 ## 11. Tests

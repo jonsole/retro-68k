@@ -49,7 +49,7 @@ Requests are **level-sensitive**: a source stays pending until its unit's flag i
 | 1 | 65 | LINE | Video: line compare (VIDSTAT.LINE) | 5 |
 | 2 | 66 | COPPER | The copper: COPSTAT.IRQ (raised by a write to COPINT) with COPCON.IRQEN; cleared by writing 1 to COPSTAT.IRQ (spec 10) | 5 |
 | 3 | 67 | VIDERR | Video: a layer ran short (VIDSTAT.OVERRUN, spec 4, section 5.3) | 5 |
-| 4 | 68 | BLT | The blitter: a job with IRQ ended, or the blitter stopped (DMXINT with DMXINTEN, spec 11) | 4 |
+| 4 | 68 | BLT | The blitter and the rasteriser: a job with IRQ ended, or the unit stopped (DMXINT with DMXINTEN, a bit each: specs 11 and 17) | 4 |
 | 5–7 | 69–71 | – | Not used (were DMA engine channels 1–3) | 4 |
 | 8 | 72 | – | Not used in version 1 (was AUDSTR; there is no audio stream) | 0 (off) |
 | 9 | 73 | AUDIO | Audio: a channel took its registers, at its start or the end of a block (AUDSTAT with AUDINTEN, spec 6) | 4 |
@@ -64,7 +64,7 @@ Requests are **level-sensitive**: a source stays pending until its unit's flag i
 | 18 | 82 | SOFT | Software interrupt (SOFTINT) | 1 |
 | 19–23 | 83–87 | – | Reserved (e.g. mouse, joysticks, accelerator-port pins) | 0 (off) |
 
-The audio channel flags that share one source (AUDIO) are told apart by reading the unit's status register in the handler. Unused sources keep their numbers, so later versions can bring them back without moving the others.
+The audio channel flags that share one source (AUDIO), and the blitter's and rasteriser's (BLT), are told apart by reading the unit's status register in the handler. Unused sources keep their numbers, so later versions can bring them back without moving the others.
 
 **Choosing levels:** the defaults put timers highest (an operating system tick should not be held up by graphics), then video (VBLANK and LINE handlers have to run on time for smooth animation), then audio and DMA, serial, and the slow devices. Software can change any of them, for example raising LINE to level 6 for precise raster effects.
 

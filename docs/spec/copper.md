@@ -26,7 +26,7 @@ The copper is a small coprocessor that follows the beam, as on the Amiga: it run
 | Subroutines | None | CALL and RET, with a stack 8 deep (section 4.4) |
 | MOVE | 16-bit data to a custom register | The same: 16-bit data to a register half; a 32-bit register (a BPLxPT) takes two MOVEs, high half first |
 | WAIT/SKIP position | 8-bit line (wraps after line 255), horizontal in steps of 4 low-resolution pixels, with compare masks | 11-bit line and pixel, pixel exact. No masks: a **pixel-only** WAIT repeats an effect on every line |
-| Waiting for the blitter | BFD bit in WAIT | The same: the BLT bit waits until the blitter is idle too |
+| Waiting for the blitter | BFD bit in WAIT | The same: the BLT bit waits until the blitter and the rasteriser are idle too |
 | Lists | COP1LC, COP2LC; strobes COPJMP1, COPJMP2; list 1 restarts each frame | The same, plus COPCON.RESUME: a list 2 cut off by the vertical blank can carry on where it stopped (section 6.1) |
 | Jumping | A MOVE to COPJMP2 | JUMP to any address; the strobes still work |
 | End of list | WAIT for an impossible position ($FFFFFFFE) | STOP, or a WAIT for line 2047 (the Amiga's $FFFFFFFE itself is a reserved pattern here: it stops too, but sets COPSTAT.ERR) |
@@ -60,7 +60,7 @@ Every instruction is 32 bits, at a 4-byte-aligned address. Bit 31 says which kin
 | Instruction | Does |
 |-------------|------|
 | **MOVE** | Writes the 16-bit data to the register half at that byte offset in the custom block (`0xE00000` + offset). An offset with bit 1 clear is a high half, with bit 1 set a low half. Each MOVE writes its half at once, keeping the other half (spec 3, section 2), as on the Amiga: a 32-bit register (a BPLxPT) takes two MOVEs, high half first, and holds the new high half and the old low half in between. A palette entry is the exception: its high half is held (one for the copper, apart from the CPU's) until the copper's next MOVE to its low half, so a colour changes all at once. 16-bit registers (BPLxDAT, BPLSTRIDE, DMACON, the strobes) need one MOVE, to their low half |
-| **WAIT** | Waits until the beam has reached the position (section 3): it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position is reached on the current line, or on the next line if it has already passed. With **B** set, it also waits until the blitter (spec 11) is idle: no job or chain running, including one a MOVE just before started |
+| **WAIT** | Waits until the beam has reached the position (section 3): it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position is reached on the current line, or on the next line if it has already passed. With **B** set, it also waits until the blitter (spec 11) and the rasteriser (spec 17) are both idle: no job or chain running in either, including one a MOVE just before started |
 | **SKIP** | If the beam has reached the position, skips the next instruction. With P set, compares the pixel position only |
 | **JUMP** | Continues at the address |
 | **STOP** | Stops until the next frame (or a COPJMP strobe). A WAIT for line 2047 does the same, as on the Amiga |
