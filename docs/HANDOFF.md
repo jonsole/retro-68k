@@ -77,7 +77,7 @@ Done and tested in simulation:
 | Serial, interrupts, timers | `serial.v`, `intc.v`, `timers.v` | boot |
 | The 68000 RESET instruction: resets the devices (not the CPU, overlay, watchdog, time counter or USB link) | `retro68k.v` (`dev_rst`), `timers.v` | rtest |
 
-Size (Vivado, XC7A35T): 16,638 LUTs (80.0%) with the 4-channel DMA engine (29 October; not rebuilt since the blitter port of 10 November, which should take over 1,000 off), 12 block RAM tiles, 8 DSP slices. Timing met at 100 MHz, worst setup slack +0.066 ns (register bus write to the sprite registers' RAM), hold +0.050 ns. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
+Size (Vivado, XC7A35T, 10 November, after the blitter port): 14,687 LUTs (70.6%), 9,627 flip-flops, 11.5 block RAM tiles, 6 DSP slices. It was 16,555 (79.6%) with the 4-channel DMA engine. Timing met at 100 MHz, worst setup slack +0.503 ns, hold +0.036 ns. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
 
 ### Recent decisions to know about
 
@@ -107,5 +107,4 @@ In rough order:
 - Only the `spr` video screen is in CI (its own job, about an hour); `pal`, `direct` and `share` run locally.
 - Sprite open points (spec 9, section 9): S1, measure the memory budget table in simulation; S2, whether sprites' share of free cycles should be capped.
 - The blitter's speed (spec 11, section 8) is measured in simulation with the display off; not with a busy screen, nor on the board (open point D2).
-- The Vivado build has not been run since the blitter port (spec 11, open point D1): the size and timing figures below are from before it.
 - The SD test covers single blocks; multi-block transfers (CMD18, CMD25) are left to software and untested.

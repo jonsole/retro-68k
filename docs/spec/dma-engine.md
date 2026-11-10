@@ -305,13 +305,13 @@ Version 1's figures (copy 25–38 MB/s, fill 50–77 MB/s) were worked out from 
 | The job registers (8 × 32 bits) and the control registers | Flip-flops, driving the core's job ports directly |
 | Block RAM, DSP | None (version 1: one block RAM, 2 DSP slices) |
 
-Version 1's engine was about 2,300 LUTs here. The figure for this one in the whole design is open point D1.
+Version 1's engine was about 2,300 LUTs here. The whole design went from 16,555 LUTs (79.6%) to 14,687 (70.6%) with this one (Vivado 2026.1, XC7A35T, 10 November 2026), and from 10,698 flip-flops to 9,627; timing at 100 MHz is met (worst setup slack +0.503 ns, hold +0.036 ns).
 
 ## 10. Open points
 
 | # | Item |
 |---|------|
-| D1 | Build in Vivado: the size in the whole design, and timing at 100 MHz |
+| D1 | Closed: built in Vivado (section 9) |
 | D2 | Measure the speed with a busy display and CPU, and on the board |
 | D3 | Lines and triangles: retro-hw's `raster` core (`fpga/retro-hw/docs/spec/raster.md`: LINE and TRI jobs, a clip window) gets its own wrapper and registers in the next change; `geom` (3D points) later still. They are separate cores, not operations of this one, so version 1's OP codes (LINE, span fill, triangle, MIX) are gone |
 | D4 | A FIFO mover for the SD card and the serial link (version 1's port jobs) is decided later (retro-hw's blitter spec, B3). Until then the CPU moves those bytes |
