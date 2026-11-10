@@ -6,7 +6,7 @@
 ;   CMOVEL  reg,value       write a 32-bit register: two MOVEs, high half first
 ;   CWAIT   line,pixel      wait until the beam reaches line, pixel (frame order)
 ;   CWAITP  pixel           wait for a pixel position on the current or next line
-;   CWAITB  line,pixel      as CWAIT, and until the DMA engine is idle
+;   CWAITB  line,pixel      as CWAIT, and until the blitter is idle
 ;   CSKIP   line,pixel      skip the next instruction if the beam has reached it
 ;   CSKIPP  pixel           as CSKIP, pixel position only
 ;   CJUMP   address         continue at address (4-byte aligned)

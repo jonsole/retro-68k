@@ -17,7 +17,7 @@ CHIPRAM_SIZE                 equ $400000
 ROM                          equ $F80000
 ROM_SIZE                     equ $8000
 
-; ---- CUSTOM: Custom registers: video, DMA engine, audio, copper
+; ---- CUSTOM: Custom registers: video, blitter, audio, copper
 CUSTOM                       equ $E00000
 CUSTOM_SIZE                  equ $10000
 VIDCON                       equ $0          ; RW, spec 4/6.1
@@ -193,14 +193,93 @@ MEMSLOT4_PORT_B              equ $6
 MEMSLOT4_PORT_M              equ $40
 MEMSLOT4_LOCK_B              equ $7
 MEMSLOT4_LOCK_M              equ $80
-DMXINT                       equ $3F0        ; W1C, spec 11/8
-DMXINT_CH_B                  equ $0
-DMXINT_CH_W                  equ $4
-DMXINT_CH_M                  equ $F
-DMXINTEN                     equ $3F4        ; RW, spec 11/8
-DMXINTEN_CH_B                equ $0
-DMXINTEN_CH_W                equ $4
-DMXINTEN_CH_M                equ $F
+BLTCTRL                      equ $300        ; RW, spec 11/3
+BLTCTRL_KEY_B                equ $0
+BLTCTRL_KEY_W                equ $8
+BLTCTRL_KEY_M                equ $FF
+BLTCTRL_BPP_B                equ $8
+BLTCTRL_BPP_W                equ $2
+BLTCTRL_BPP_M                equ $300
+BLTCTRL_RTL_B                equ $A
+BLTCTRL_RTL_M                equ $400
+BLTCTRL_IRQ_B                equ $C
+BLTCTRL_IRQ_M                equ $1000
+BLTCTRL_BCONST_B             equ $D
+BLTCTRL_BCONST_M             equ $2000
+BLTCTRL_MASK_B               equ $11
+BLTCTRL_MASK_W               equ $2
+BLTCTRL_MASK_M               equ $60000
+BLTCTRL_MINTERM_B            equ $18
+BLTCTRL_MINTERM_W            equ $8
+BLTCTRL_MINTERM_M            equ $FF000000
+BLTBPT                       equ $304        ; RW, spec 11/3
+BLTBPT_ADDR_B                equ $0
+BLTBPT_ADDR_W                equ $18
+BLTBPT_ADDR_M                equ $FFFFFF
+BLTBPT_BIT_B                 equ $18
+BLTBPT_BIT_W                 equ $3
+BLTBPT_BIT_M                 equ $7000000
+BLTDPT                       equ $308        ; RW, spec 11/3
+BLTDPT_ADDR_B                equ $0
+BLTDPT_ADDR_W                equ $18
+BLTDPT_ADDR_M                equ $FFFFFF
+BLTDPT_BIT_B                 equ $18
+BLTDPT_BIT_W                 equ $3
+BLTDPT_BIT_M                 equ $7000000
+BLTSIZE                      equ $30C        ; RW, spec 11/3
+BLTSIZE_WIDTH_B              equ $0
+BLTSIZE_WIDTH_W              equ $10
+BLTSIZE_WIDTH_M              equ $FFFF
+BLTSIZE_HEIGHT_B             equ $10
+BLTSIZE_HEIGHT_W             equ $10
+BLTSIZE_HEIGHT_M             equ $FFFF0000
+BLTAPT                       equ $310        ; RW, spec 11/3
+BLTAPT_ADDR_B                equ $0
+BLTAPT_ADDR_W                equ $18
+BLTAPT_ADDR_M                equ $FFFFFF
+BLTAPT_BIT_B                 equ $18
+BLTAPT_BIT_W                 equ $3
+BLTAPT_BIT_M                 equ $7000000
+BLTSTRIDE                    equ $314        ; RW, spec 11/3
+BLTSTRIDE_BSTRIDE_B          equ $10
+BLTSTRIDE_BSTRIDE_W          equ $10
+BLTSTRIDE_BSTRIDE_M          equ $FFFF0000
+BLTSTRIDE_DSTRIDE_B          equ $0
+BLTSTRIDE_DSTRIDE_W          equ $10
+BLTSTRIDE_DSTRIDE_M          equ $FFFF
+BLTVALUE                     equ $318        ; RW, spec 11/3
+BLTVALUE_ASTRIDE_B           equ $10
+BLTVALUE_ASTRIDE_W           equ $10
+BLTVALUE_ASTRIDE_M           equ $FFFF0000
+BLTVALUE_VALUE_B             equ $0
+BLTVALUE_VALUE_W             equ $10
+BLTVALUE_VALUE_M             equ $FFFF
+BLTNEXT                      equ $31C        ; RW, spec 11/3
+BLTNEXT_ADDR_B               equ $0
+BLTNEXT_ADDR_W               equ $18
+BLTNEXT_ADDR_M               equ $FFFFFF
+BLTDESC                      equ $320        ; RW, spec 11/7
+BLTDESC_ADDR_B               equ $0
+BLTDESC_ADDR_W               equ $18
+BLTDESC_ADDR_M               equ $FFFFFF
+BLTCMD                       equ $324        ; W, spec 11/7
+BLTCMD_START_B               equ $0
+BLTCMD_START_M               equ $1
+BLTCMD_RUN_B                 equ $1
+BLTCMD_RUN_M                 equ $2
+BLTCMD_STOP_B                equ $2
+BLTCMD_STOP_M                equ $4
+BLTSTAT                      equ $328        ; R, spec 11/7
+BLTSTAT_BUSY_B               equ $0
+BLTSTAT_BUSY_M               equ $1
+BLTSTAT_ERR_B                equ $2
+BLTSTAT_ERR_M                equ $4
+DMXINT                       equ $3F0        ; W1C, spec 11/7
+DMXINT_BLT_B                 equ $0
+DMXINT_BLT_M                 equ $1
+DMXINTEN                     equ $3F4        ; RW, spec 11/7
+DMXINTEN_BLT_B               equ $0
+DMXINTEN_BLT_M               equ $1
 SPRDMA                       equ $500        ; SC, spec 9/6
 SPRDMA_SPR_B                 equ $0
 SPRDMA_SPR_W                 equ $8
@@ -496,156 +575,6 @@ L2_BPL4DAT                   equ $250
 L2_BPL5DAT                   equ $254
 L2_BPL6DAT                   equ $258
 L2_BPL7DAT                   equ $25C
-; DMX0..DMX3: 4 x 64 bytes, spec 11/8
-DMX_NUM                      equ $4
-DMX_SPAN                     equ $40
-DMX0                         equ $300
-DMX1                         equ $340
-DMX2                         equ $380
-DMX3                         equ $3C0
-DMX_CTRL                     equ $0          ; RW, spec 11/8 (add to DMXn)
-DMX_CTRL_OP_B                equ $0
-DMX_CTRL_OP_W                equ $3
-DMX_CTRL_OP_M                equ $7
-DMX_CTRL_SAT_B               equ $4
-DMX_CTRL_SAT_M               equ $10
-DMX_CTRL_SIGNED_B            equ $5
-DMX_CTRL_SIGNED_M            equ $20
-DMX_CTRL_BPP_B               equ $8
-DMX_CTRL_BPP_W               equ $2
-DMX_CTRL_BPP_M               equ $300
-DMX_CTRL_DESC_B              equ $A
-DMX_CTRL_DESC_M              equ $400
-DMX_CTRL_HIGH_B              equ $B
-DMX_CTRL_HIGH_M              equ $800
-DMX_CTRL_IRQ_B               equ $C
-DMX_CTRL_IRQ_M               equ $1000
-DMX_CTRL_BKIND_B             equ $D
-DMX_CTRL_BKIND_W             equ $2
-DMX_CTRL_BKIND_M             equ $6000
-DMX_CTRL_DKIND_B             equ $F
-DMX_CTRL_DKIND_W             equ $2
-DMX_CTRL_DKIND_M             equ $18000
-DMX_CTRL_MASK_B              equ $11
-DMX_CTRL_MASK_W              equ $2
-DMX_CTRL_MASK_M              equ $60000
-DMX_CTRL_MINTERM_B           equ $18
-DMX_CTRL_MINTERM_W           equ $8
-DMX_CTRL_MINTERM_M           equ $FF000000
-DMX_BPT                      equ $4          ; RW, spec 11/8 (add to DMXn)
-DMX_BPT_ADDR_B               equ $0
-DMX_BPT_ADDR_W               equ $18
-DMX_BPT_ADDR_M               equ $FFFFFF
-DMX_BPT_BIT_B                equ $18
-DMX_BPT_BIT_W                equ $3
-DMX_BPT_BIT_M                equ $7000000
-DMX_DPT                      equ $8          ; RW, spec 11/8 (add to DMXn)
-DMX_DPT_ADDR_B               equ $0
-DMX_DPT_ADDR_W               equ $18
-DMX_DPT_ADDR_M               equ $FFFFFF
-DMX_DPT_BIT_B                equ $18
-DMX_DPT_BIT_W                equ $3
-DMX_DPT_BIT_M                equ $7000000
-DMX_SIZE                     equ $C          ; RW, spec 11/8 (add to DMXn)
-DMX_SIZE_WIDTH_B             equ $0
-DMX_SIZE_WIDTH_W             equ $10
-DMX_SIZE_WIDTH_M             equ $FFFF
-DMX_SIZE_HEIGHT_B            equ $10
-DMX_SIZE_HEIGHT_W            equ $10
-DMX_SIZE_HEIGHT_M            equ $FFFF0000
-DMX_APT                      equ $10         ; RW, spec 11/8 (add to DMXn)
-DMX_APT_ADDR_B               equ $0
-DMX_APT_ADDR_W               equ $18
-DMX_APT_ADDR_M               equ $FFFFFF
-DMX_APT_BIT_B                equ $18
-DMX_APT_BIT_W                equ $3
-DMX_APT_BIT_M                equ $7000000
-DMX_STRIDE                   equ $14         ; RW, spec 11/8 (add to DMXn)
-DMX_STRIDE_ABSTRIDE_B        equ $10
-DMX_STRIDE_ABSTRIDE_W        equ $10
-DMX_STRIDE_ABSTRIDE_M        equ $FFFF0000
-DMX_STRIDE_CDSTRIDE_B        equ $0
-DMX_STRIDE_CDSTRIDE_W        equ $10
-DMX_STRIDE_CDSTRIDE_M        equ $FFFF
-DMX_VALUE                    equ $18         ; RW, spec 11/8 (add to DMXn)
-DMX_NEXT                     equ $1C         ; RW, spec 11/8 (add to DMXn)
-DMX_NEXT_ADDR_B              equ $0
-DMX_NEXT_ADDR_W              equ $18
-DMX_NEXT_ADDR_M              equ $FFFFFF
-DMX_CHDESC                   equ $20         ; RW, spec 11/8 (add to DMXn)
-DMX_CHDESC_ADDR_B            equ $0
-DMX_CHDESC_ADDR_W            equ $18
-DMX_CHDESC_ADDR_M            equ $FFFFFF
-DMX_CHCTRL                   equ $24         ; RW, spec 11/8 (add to DMXn)
-DMX_CHCTRL_START_B           equ $0
-DMX_CHCTRL_START_M           equ $1
-DMX_CHCTRL_RUN_B             equ $1
-DMX_CHCTRL_RUN_M             equ $2
-DMX_CHCTRL_STOP_B            equ $2
-DMX_CHCTRL_STOP_M            equ $4
-DMX_CHCTRL_PAUSE_B           equ $3
-DMX_CHCTRL_PAUSE_M           equ $8
-DMX_CHSTAT                   equ $28         ; RW1C, spec 11/8 (add to DMXn)
-DMX_CHSTAT_BUSY_B            equ $0
-DMX_CHSTAT_BUSY_M            equ $1
-DMX_CHSTAT_DONE_B            equ $1
-DMX_CHSTAT_DONE_M            equ $2
-DMX_CHSTAT_ERR_B             equ $2
-DMX_CHSTAT_ERR_M             equ $4
-DMX_CHSTAT_PAUSED_B          equ $3
-DMX_CHSTAT_PAUSED_M          equ $8
-DMX_CHERR                    equ $2C         ; R, spec 11/8 (add to DMXn)
-DMX_CHERR_ADDR_B             equ $0
-DMX_CHERR_ADDR_W             equ $18
-DMX_CHERR_ADDR_M             equ $FFFFFF
-DMX0_CTRL                    equ $300
-DMX0_BPT                     equ $304
-DMX0_DPT                     equ $308
-DMX0_SIZE                    equ $30C
-DMX0_APT                     equ $310
-DMX0_STRIDE                  equ $314
-DMX0_VALUE                   equ $318
-DMX0_NEXT                    equ $31C
-DMX0_CHDESC                  equ $320
-DMX0_CHCTRL                  equ $324
-DMX0_CHSTAT                  equ $328
-DMX0_CHERR                   equ $32C
-DMX1_CTRL                    equ $340
-DMX1_BPT                     equ $344
-DMX1_DPT                     equ $348
-DMX1_SIZE                    equ $34C
-DMX1_APT                     equ $350
-DMX1_STRIDE                  equ $354
-DMX1_VALUE                   equ $358
-DMX1_NEXT                    equ $35C
-DMX1_CHDESC                  equ $360
-DMX1_CHCTRL                  equ $364
-DMX1_CHSTAT                  equ $368
-DMX1_CHERR                   equ $36C
-DMX2_CTRL                    equ $380
-DMX2_BPT                     equ $384
-DMX2_DPT                     equ $388
-DMX2_SIZE                    equ $38C
-DMX2_APT                     equ $390
-DMX2_STRIDE                  equ $394
-DMX2_VALUE                   equ $398
-DMX2_NEXT                    equ $39C
-DMX2_CHDESC                  equ $3A0
-DMX2_CHCTRL                  equ $3A4
-DMX2_CHSTAT                  equ $3A8
-DMX2_CHERR                   equ $3AC
-DMX3_CTRL                    equ $3C0
-DMX3_BPT                     equ $3C4
-DMX3_DPT                     equ $3C8
-DMX3_SIZE                    equ $3CC
-DMX3_APT                     equ $3D0
-DMX3_STRIDE                  equ $3D4
-DMX3_VALUE                   equ $3D8
-DMX3_NEXT                    equ $3DC
-DMX3_CHDESC                  equ $3E0
-DMX3_CHCTRL                  equ $3E4
-DMX3_CHSTAT                  equ $3E8
-DMX3_CHERR                   equ $3EC
 ; SPR0..SPR7: 8 x 32 bytes, spec 9/6
 SPR_NUM                      equ $8
 SPR_SPAN                     equ $20
@@ -813,8 +742,6 @@ PALETTE2                     equ $4800       ; RW, spec 4/6.3
 PALETTE2_SIZE                equ $400
 SPRPALETTE                   equ $4C00       ; RW, spec 4/6.3
 SPRPALETTE_SIZE              equ $400
-DESCRAM                      equ $6000       ; RW, spec 11/8
-DESCRAM_SIZE                 equ $800
 
 ; ---- SYSTEM: System registers: interrupts, timers, serial, SD card, keyboard, system control
 SYSTEM                       equ $F00000
@@ -959,10 +886,6 @@ SDDATA_BYTE_W                equ $8
 SDDATA_BYTE_M                equ $FF
 SDDATA_BUSY_B                equ $8
 SDDATA_BUSY_M                equ $100
-SDCOUNT                      equ $308        ; RW, spec 15/3.5
-SDCOUNT_COUNT_B              equ $0
-SDCOUNT_COUNT_W              equ $10
-SDCOUNT_COUNT_M              equ $FFFF
 KBCON                        equ $400        ; RW, spec 16/4
 KBCON_EN_B                   equ $0
 KBCON_EN_M                   equ $1
@@ -1123,11 +1046,6 @@ TMR_CTRL_SRC_W               equ $2
 TMR_CTRL_SRC_M               equ $C
 TMR_CTRL_IRQ_B               equ $4
 TMR_CTRL_IRQ_M               equ $10
-TMR_CTRL_DMA_B               equ $5
-TMR_CTRL_DMA_M               equ $20
-TMR_CTRL_DMACH_B             equ $6
-TMR_CTRL_DMACH_W             equ $2
-TMR_CTRL_DMACH_M             equ $C0
 TMR_PRESCALE                 equ $4          ; RW, spec 12/4.2 (add to TMRn)
 TMR_PRESCALE_DIV_B           equ $0
 TMR_PRESCALE_DIV_W           equ $10
@@ -1158,77 +1076,73 @@ TMR3_RELOAD                  equ $1A8
 TMR3_COUNT                   equ $1AC
 TMR3_STAT                    equ $1B0
 
-; ---- DMXDESC: 32-byte layout in memory, spec 11/3
-DMXDESC_SIZEOF               equ $20
-DMXDESC_CTRL                 equ $0
-DMXDESC_CTRL_OP_B            equ $0
-DMXDESC_CTRL_OP_W            equ $3
-DMXDESC_CTRL_OP_M            equ $7
-DMXDESC_CTRL_SAT_B           equ $4
-DMXDESC_CTRL_SAT_M           equ $10
-DMXDESC_CTRL_SIGNED_B        equ $5
-DMXDESC_CTRL_SIGNED_M        equ $20
-DMXDESC_CTRL_BPP_B           equ $8
-DMXDESC_CTRL_BPP_W           equ $2
-DMXDESC_CTRL_BPP_M           equ $300
-DMXDESC_CTRL_DESC_B          equ $A
-DMXDESC_CTRL_DESC_M          equ $400
-DMXDESC_CTRL_HIGH_B          equ $B
-DMXDESC_CTRL_HIGH_M          equ $800
-DMXDESC_CTRL_IRQ_B           equ $C
-DMXDESC_CTRL_IRQ_M           equ $1000
-DMXDESC_CTRL_BKIND_B         equ $D
-DMXDESC_CTRL_BKIND_W         equ $2
-DMXDESC_CTRL_BKIND_M         equ $6000
-DMXDESC_CTRL_DKIND_B         equ $F
-DMXDESC_CTRL_DKIND_W         equ $2
-DMXDESC_CTRL_DKIND_M         equ $18000
-DMXDESC_CTRL_MASK_B          equ $11
-DMXDESC_CTRL_MASK_W          equ $2
-DMXDESC_CTRL_MASK_M          equ $60000
-DMXDESC_CTRL_MINTERM_B       equ $18
-DMXDESC_CTRL_MINTERM_W       equ $8
-DMXDESC_CTRL_MINTERM_M       equ $FF000000
-DMXDESC_BPT                  equ $4
-DMXDESC_BPT_ADDR_B           equ $0
-DMXDESC_BPT_ADDR_W           equ $18
-DMXDESC_BPT_ADDR_M           equ $FFFFFF
-DMXDESC_BPT_BIT_B            equ $18
-DMXDESC_BPT_BIT_W            equ $3
-DMXDESC_BPT_BIT_M            equ $7000000
-DMXDESC_DPT                  equ $8
-DMXDESC_DPT_ADDR_B           equ $0
-DMXDESC_DPT_ADDR_W           equ $18
-DMXDESC_DPT_ADDR_M           equ $FFFFFF
-DMXDESC_DPT_BIT_B            equ $18
-DMXDESC_DPT_BIT_W            equ $3
-DMXDESC_DPT_BIT_M            equ $7000000
-DMXDESC_SIZE                 equ $C
-DMXDESC_SIZE_WIDTH_B         equ $0
-DMXDESC_SIZE_WIDTH_W         equ $10
-DMXDESC_SIZE_WIDTH_M         equ $FFFF
-DMXDESC_SIZE_HEIGHT_B        equ $10
-DMXDESC_SIZE_HEIGHT_W        equ $10
-DMXDESC_SIZE_HEIGHT_M        equ $FFFF0000
-DMXDESC_APT                  equ $10
-DMXDESC_APT_ADDR_B           equ $0
-DMXDESC_APT_ADDR_W           equ $18
-DMXDESC_APT_ADDR_M           equ $FFFFFF
-DMXDESC_APT_BIT_B            equ $18
-DMXDESC_APT_BIT_W            equ $3
-DMXDESC_APT_BIT_M            equ $7000000
-DMXDESC_STRIDE               equ $14
-DMXDESC_STRIDE_ABSTRIDE_B    equ $10
-DMXDESC_STRIDE_ABSTRIDE_W    equ $10
-DMXDESC_STRIDE_ABSTRIDE_M    equ $FFFF0000
-DMXDESC_STRIDE_CDSTRIDE_B    equ $0
-DMXDESC_STRIDE_CDSTRIDE_W    equ $10
-DMXDESC_STRIDE_CDSTRIDE_M    equ $FFFF
-DMXDESC_VALUE                equ $18
-DMXDESC_NEXT                 equ $1C
-DMXDESC_NEXT_ADDR_B          equ $0
-DMXDESC_NEXT_ADDR_W          equ $18
-DMXDESC_NEXT_ADDR_M          equ $FFFFFF
+; ---- BLTJOB: 32-byte layout in memory, spec 11/3
+BLTJOB_SIZEOF                equ $20
+BLTJOB_CTRL                  equ $0
+BLTJOB_CTRL_KEY_B            equ $0
+BLTJOB_CTRL_KEY_W            equ $8
+BLTJOB_CTRL_KEY_M            equ $FF
+BLTJOB_CTRL_BPP_B            equ $8
+BLTJOB_CTRL_BPP_W            equ $2
+BLTJOB_CTRL_BPP_M            equ $300
+BLTJOB_CTRL_RTL_B            equ $A
+BLTJOB_CTRL_RTL_M            equ $400
+BLTJOB_CTRL_IRQ_B            equ $C
+BLTJOB_CTRL_IRQ_M            equ $1000
+BLTJOB_CTRL_BCONST_B         equ $D
+BLTJOB_CTRL_BCONST_M         equ $2000
+BLTJOB_CTRL_MASK_B           equ $11
+BLTJOB_CTRL_MASK_W           equ $2
+BLTJOB_CTRL_MASK_M           equ $60000
+BLTJOB_CTRL_MINTERM_B        equ $18
+BLTJOB_CTRL_MINTERM_W        equ $8
+BLTJOB_CTRL_MINTERM_M        equ $FF000000
+BLTJOB_BPT                   equ $4
+BLTJOB_BPT_ADDR_B            equ $0
+BLTJOB_BPT_ADDR_W            equ $18
+BLTJOB_BPT_ADDR_M            equ $FFFFFF
+BLTJOB_BPT_BIT_B             equ $18
+BLTJOB_BPT_BIT_W             equ $3
+BLTJOB_BPT_BIT_M             equ $7000000
+BLTJOB_DPT                   equ $8
+BLTJOB_DPT_ADDR_B            equ $0
+BLTJOB_DPT_ADDR_W            equ $18
+BLTJOB_DPT_ADDR_M            equ $FFFFFF
+BLTJOB_DPT_BIT_B             equ $18
+BLTJOB_DPT_BIT_W             equ $3
+BLTJOB_DPT_BIT_M             equ $7000000
+BLTJOB_SIZE                  equ $C
+BLTJOB_SIZE_WIDTH_B          equ $0
+BLTJOB_SIZE_WIDTH_W          equ $10
+BLTJOB_SIZE_WIDTH_M          equ $FFFF
+BLTJOB_SIZE_HEIGHT_B         equ $10
+BLTJOB_SIZE_HEIGHT_W         equ $10
+BLTJOB_SIZE_HEIGHT_M         equ $FFFF0000
+BLTJOB_APT                   equ $10
+BLTJOB_APT_ADDR_B            equ $0
+BLTJOB_APT_ADDR_W            equ $18
+BLTJOB_APT_ADDR_M            equ $FFFFFF
+BLTJOB_APT_BIT_B             equ $18
+BLTJOB_APT_BIT_W             equ $3
+BLTJOB_APT_BIT_M             equ $7000000
+BLTJOB_STRIDE                equ $14
+BLTJOB_STRIDE_BSTRIDE_B      equ $10
+BLTJOB_STRIDE_BSTRIDE_W      equ $10
+BLTJOB_STRIDE_BSTRIDE_M      equ $FFFF0000
+BLTJOB_STRIDE_DSTRIDE_B      equ $0
+BLTJOB_STRIDE_DSTRIDE_W      equ $10
+BLTJOB_STRIDE_DSTRIDE_M      equ $FFFF
+BLTJOB_VALUE                 equ $18
+BLTJOB_VALUE_ASTRIDE_B       equ $10
+BLTJOB_VALUE_ASTRIDE_W       equ $10
+BLTJOB_VALUE_ASTRIDE_M       equ $FFFF0000
+BLTJOB_VALUE_VALUE_B         equ $0
+BLTJOB_VALUE_VALUE_W         equ $10
+BLTJOB_VALUE_VALUE_M         equ $FFFF
+BLTJOB_NEXT                  equ $1C
+BLTJOB_NEXT_ADDR_B           equ $0
+BLTJOB_NEXT_ADDR_W           equ $18
+BLTJOB_NEXT_ADDR_M           equ $FFFFFF
 
 ; ---- Named numbers
 TEXTCELL_CHAR_SHIFT          equ $0
@@ -1242,10 +1156,7 @@ INT_VBLANK                   equ $0
 INT_LINE                     equ $1
 INT_COPPER                   equ $2
 INT_VIDERR                   equ $3
-INT_DMA0                     equ $4
-INT_DMA1                     equ $5
-INT_DMA2                     equ $6
-INT_DMA3                     equ $7
+INT_BLT                      equ $4
 INT_AUDIO                    equ $9
 INT_TIMER0                   equ $B
 INT_TIMER1                   equ $C
@@ -1259,10 +1170,7 @@ INTB_VBLANK                  equ $0          ; bit of source 0 in INTENA, INTPEN
 INTB_LINE                    equ $1          ; bit of source 1 in INTENA, INTPEND and INTRAW
 INTB_COPPER                  equ $2          ; bit of source 2 in INTENA, INTPEND and INTRAW
 INTB_VIDERR                  equ $3          ; bit of source 3 in INTENA, INTPEND and INTRAW
-INTB_DMA0                    equ $4          ; bit of source 4 in INTENA, INTPEND and INTRAW
-INTB_DMA1                    equ $5          ; bit of source 5 in INTENA, INTPEND and INTRAW
-INTB_DMA2                    equ $6          ; bit of source 6 in INTENA, INTPEND and INTRAW
-INTB_DMA3                    equ $7          ; bit of source 7 in INTENA, INTPEND and INTRAW
+INTB_BLT                     equ $4          ; bit of source 4 in INTENA, INTPEND and INTRAW
 INTB_AUDIO                   equ $9          ; bit of source 9 in INTENA, INTPEND and INTRAW
 INTB_TIMER0                  equ $B          ; bit of source 11 in INTENA, INTPEND and INTRAW
 INTB_TIMER1                  equ $C          ; bit of source 12 in INTENA, INTPEND and INTRAW
@@ -1274,17 +1182,9 @@ INTB_KEYB                    equ $12         ; bit of source 17 in INTENA, INTPE
 INTB_SOFT                    equ $13         ; bit of source 18 in INTENA, INTPEND and INTRAW
 VEC_NMI                      equ $1F
 VEC_SPURIOUS                 equ $18
-DMX_OP_BLIT                  equ $0
-DMX_OP_ADD                   equ $1
-DMX_OP_MIX                   equ $5
-DMX_KIND_MEM                 equ $0
-DMX_KIND_PORT                equ $1
-DMX_KIND_VALUE               equ $3
-DMX_MASK_NONE                equ $0
-DMX_MASK_IMAGE               equ $1
-DMX_MASK_KEY                 equ $2
-DMX_PORT_SD                  equ $0
-DMX_PORT_SERIAL              equ $1
+BLT_MASK_NONE                equ $0
+BLT_MASK_IMAGE               equ $1
+BLT_MASK_KEY                 equ $2
 COP_EXT                      equ $80000000   ; bit 31: 0 = MOVE, 1 = WAIT, SKIP, JUMP or STOP
 COP_OP_SHIFT                 equ $1C         ; bits 30-28: the instruction
 COP_OP_WAIT                  equ $0
@@ -1292,7 +1192,7 @@ COP_OP_SKIP                  equ $1
 COP_OP_JUMP                  equ $2
 COP_OP_STOP                  equ $3
 COP_PIXONLY                  equ $8000000    ; bit 27: WAIT/SKIP compare the pixel position only
-COP_BLT                      equ $8000       ; bit 15: WAIT also waits for the DMA engine to be idle
+COP_BLT                      equ $8000       ; bit 15: WAIT also waits for the blitter to be idle
 COP_V_SHIFT                  equ $10
 COP_H_SHIFT                  equ $0
 COP_OP_MOVR                  equ $4          ; MOVE through X and Y

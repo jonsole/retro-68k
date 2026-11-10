@@ -29,7 +29,7 @@ module video (
     input  wire [23:2] rb_addr,
     input  wire [31:0] rb_wdata,
     input  wire [3:0]  rb_be,
-    input  wire [1:0]  rb_who,         // who writes: 0 the CPU, 1 the copper, 2 the DMA engine
+    input  wire        rb_cop,         // the copper writes (else the CPU)
     output wire [31:0] rb_rdata,
 
     output wire        irq_vblank,
@@ -276,25 +276,25 @@ module video (
     // that writer's next write to the same entry's low half, which writes
     // red with green and blue. A write to both halves at once (or a low
     // half alone, keeping red) goes in as it is.
-    reg        hv [0:2];               // a high half is held ...
-    reg  [9:0] ha [0:2];               // ... for this entry
-    reg  [7:0] hr [0:2];               // ... red
+    reg        hv [0:1];               // a high half is held (0 the CPU's, 1 the copper's) ...
+    reg  [9:0] ha [0:1];               // ... for this entry
+    reg  [7:0] hr [0:1];               // ... red
     wire       w_hi  = rb_wr && sel_pal && rb_be[3:2] != 2'b00 && rb_be[1:0] == 2'b00;
     wire       w_lo  = rb_wr && sel_pal && rb_be[1:0] != 2'b00;
-    wire       h_hit = (rb_who != 2'd3) && hv[rb_who] && ha[rb_who] == pal_a;
+    wire       h_hit = hv[rb_cop] && ha[rb_cop] == pal_a;
     wire       w_r   = w_lo && (rb_be[2] || h_hit);                  // red is written
-    wire [7:0] w_rv  = rb_be[2] ? rb_wdata[23:16] : hr[rb_who];
-    initial begin hv[0] = 1'b0; hv[1] = 1'b0; hv[2] = 1'b0; end
+    wire [7:0] w_rv  = rb_be[2] ? rb_wdata[23:16] : hr[rb_cop];
+    initial begin hv[0] = 1'b0; hv[1] = 1'b0; end
     always @(posedge clk) begin
         if (rst) begin
-            hv[0] <= 1'b0; hv[1] <= 1'b0; hv[2] <= 1'b0;
-        end else if (rb_who != 2'd3) begin
+            hv[0] <= 1'b0; hv[1] <= 1'b0;
+        end else begin
             if (w_hi) begin
-                hv[rb_who] <= rb_be[2];
-                ha[rb_who] <= pal_a;
-                hr[rb_who] <= rb_wdata[23:16];
+                hv[rb_cop] <= rb_be[2];
+                ha[rb_cop] <= pal_a;
+                hr[rb_cop] <= rb_wdata[23:16];
             end else if (w_lo && h_hit)
-                hv[rb_who] <= 1'b0;
+                hv[rb_cop] <= 1'b0;
         end
     end
     always @(posedge clk) if (w_lo) begin
