@@ -397,10 +397,8 @@ module video (
     reg  [2:0]  f_act, f_adv;
     reg  [11:0] f_groups [0:2];
     // This line's settings, for the layer units (and the depth, for direct colour)
-    reg  [2:0]  c_act, c_planar;
+    reg  [2:0]  c_act;
     reg  [10:0] c_xs [0:2], c_xe [0:2];
-    reg  [1:0]  c_lb [0:2];
-    reg  [2:0]  c_planes [0:2];
     reg  [3:0]  c_pos0 [0:2];
 
     always @(posedge clk_pix) begin : setup
@@ -444,9 +442,6 @@ module video (
                 f_groups[n] <= n_groups[n];
                 c_xs[n]     <= w_xs[n];
                 c_xe[n]     <= w_xe[n];
-                c_planar[n] <= l_ctrl[n][1];
-                c_lb[n]     <= l_ctrl[n][3:2];
-                c_planes[n] <= l_ctrl[n][18:16];
                 c_pos0[n]   <= n_pos0[n];
             end
         end
@@ -554,6 +549,7 @@ module video (
     // ---- layer units: their output is stage 1
     wire [2:0] bl_op;
     wire [7:0] bl_idx [0:2], bl_raw [0:2];
+    wire [3:0] bl_rgs [0:2];           // raw's group: {planar, depth} (bits a pixel - 1)
     // The layer units may take this line's first group once the DMA has
     // restarted (line_gen caught up) and the handshake has crossed back
     reg  [1:0] lg_s;
@@ -567,7 +563,7 @@ module video (
             .transp(l_ctrl[g][4]), .palofs(l_ctrl[g][15:12]),      // live, raw from the 100 MHz side
             .tile(1'b0), .dat(dat[128*g +: 128]), .attr(10'd0), .gset(gset[6*g +: 6]),
             .fill_t(fill_t[g]), .take_t(take_t[g]),
-            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .pri(), .overrun_t(ov_t[g])
+            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .raw_gs(bl_rgs[g]), .pri(), .overrun_t(ov_t[g])
         );
     end endgenerate
 
@@ -594,11 +590,11 @@ module video (
                 if (k * d < 8) widen = widen | (top >> (k * d));
         end
     endfunction
-    // (the depth of the line's CTRL, as at its start: spec 4, section 4.9)
+    // (each pixel's bits, from the group it came from: spec 4, section 4.9)
     wire [3:0] depth [0:2];
     reg  [7:0] ch2 [0:2];
     generate for (g = 0; g < 3; g = g + 1) begin : dep
-        assign depth[g] = c_planar[g] ? {1'b0, c_planes[g]} + 4'd1 : 4'd1 << c_lb[g];
+        assign depth[g] = {1'b0, bl_rgs[g][2:0]} + 4'd1;
     end endgenerate
 
     // Collisions (spec 9, section 6): gathered over a line, handed to the

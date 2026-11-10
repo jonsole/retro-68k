@@ -198,7 +198,7 @@ With VIDCON.DIRECT set, the layers' palettes and the priority are not used (spri
 - Each channel's value is widened to 8 bits by repeating its bits (a 5-bit value `abcde` becomes `abcdeabc`), so full scale stays full scale.
 - One rule covers 24-bit (8/8/8 planes or 8bpp chunky), 16-bit (5/6/5), Amiga 12-bit (4/4/4) and 9-bit (3/3/3) colour. The bandwidth is the total number of planes (section 5.2).
 - Software sets the three layers to the same window, scroll and scale. Where a layer has no pixel (outside its window, not enabled, or out of data), its channel is 0.
-- The widening uses the layer's depth as CTRL had it at the start of the line. A depth changed part way along a line (section 5.4) changes the pixel values from the next group fetched, but their widening only from the next line.
+- Each pixel is widened by the depth of the group it came from, so a depth changed part way along a line (section 5.4) changes the values and their widening together, from the next group fetched.
 - CTRL.TRANSP and PALOFS have no effect in direct colour.
 
 ## 5. Fetch
