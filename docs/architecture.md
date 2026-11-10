@@ -33,7 +33,7 @@ Glue logic duties:
 - Video RAM: dedicated SRAM on the FPGA side so video fetches never steal CPU cycles. The CPU writes VRAM through the FPGA, which arbitrates.
 - Output: VGA through a resistor DAC to start, then DVI/HDMI (TMDS from the FPGA).
 - Modes to aim for: 80×30 text, 320×240×8bpp, 640×480×4bpp, hardware sprites, scrolling, a blitter.
-- **Version 1 (decided, spec 4):** one fixed mode, 576p (720×576 at 50 Hz, CEA-861, 27 MHz pixel clock from its own MMCM), with normal screens as centred windows, three bitmap layers (planar or chunky) with Amiga-style plane pointers, whole-number scaling, a 256-entry palette and direct colour. No text mode (the boot ROM draws its text into a bitmap) and no sprites. A simple copper (MOVE, WAIT, SKIP) and a one-channel DMA engine for copies and fills. (Since grown: sprites, a fuller copper, and a 4-channel DMA engine and blitter, spec 11.)
+- **Version 1 (decided, spec 4):** one fixed mode, 576p (720×576 at 50 Hz, CEA-861, 27 MHz pixel clock from its own MMCM), with normal screens as centred windows, three bitmap layers (planar or chunky) with Amiga-style plane pointers, whole-number scaling, a 256-entry palette and direct colour. No text mode (the boot ROM draws its text into a bitmap) and no sprites. A simple copper (MOVE, WAIT, SKIP) and a one-channel DMA engine for copies and fills. (Since grown: sprites, a fuller copper, and a blitter, spec 11; a 4-channel DMA engine came and went in between.)
 
 ## FPGA: audio
 

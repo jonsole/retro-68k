@@ -4,10 +4,10 @@
 
 This chapter covers the two devices a home computer needs besides the screen: **storage**, an SD card, and **input**, a PS/2 keyboard. Both are kept simple in the hardware and leave the protocol work to software, so a small amount of logic does the job.
 
-- The **SD card** controller clocks bytes to and from the card at up to 25 MHz. Software sends the card's commands and reads its answers; the DMA engine moves the 512 data bytes of each block, so loading a file costs the CPU almost nothing.
+- The **SD card** controller clocks bytes to and from the card at up to 25 MHz. Software sends the card's commands, reads its answers and moves the data bytes of each block.
 - The **keyboard** controller receives the keyboard's bytes, checks them and keeps them in a small FIFO; software decodes the scan codes. It can also send bytes to the keyboard, to set its lights or its repeat rate.
 
-You should have read "Working with the Hardware Registers" in the Introduction and System Control Hardware chapter, and the DMA Engine and Blitter Hardware chapter (for loading blocks by DMA).
+You should have read "Working with the Hardware Registers" in the Introduction and System Control Hardware chapter.
 
 **Note:** Both are built in the FPGA design (`fpga/rtl/sdspi.v`, `fpga/rtl/ps2kb.v`) and tested in simulation against models of a card and a keyboard (`make -C sim iotest`), but not yet on the board.
 
@@ -27,7 +27,6 @@ The KS3's SD slot is wired for **SPI mode**, in which the card talks a byte at a
 |------|--------|----------|
 | SDCON | `$300` | EN (0): on. CS0 (1), CS1 (2): select the card (1 = selected). CLKDIV (15–8): SPI clock = 100 MHz ÷ (2 × CLKDIV) |
 | SDDATA | `$304` | Write: send a byte (7–0). Read: the last byte received (7–0), and BUSY (8) while a byte is going |
-| SDCOUNT | `$308` | Write N: read N bytes for the DMA engine. Read: bytes still to read |
 
 ### Sending and receiving a byte
 
@@ -44,7 +43,7 @@ spi:        and.l   #$FF,d0
             rts
 ```
 
-At 25 MHz a byte takes 320 ns, so the loop above is limited by the CPU, at a few hundred KB/s. That is fine for commands; data blocks go by DMA (below).
+At 25 MHz a byte takes 320 ns, so the loop above is limited by the CPU, at a few hundred KB/s. Data blocks go the same way, a block in a millisecond or two.
 
 ### Commands
 
@@ -97,17 +96,12 @@ Then:
 
 There is no card-detect switch. To find out whether a card is there, or has been changed, start it again.
 
-### Reading a block by DMA
+### Reading a block
 
-**CMD17** reads one block (its number, or for SDSC its byte address, as the argument). After R1, keep sending `$FF` until the card's start byte `$FE` arrives; then come 512 data bytes and 2 check bytes. To have the DMA engine take the data bytes:
-
-1. Write 512 to **SDCOUNT**: the controller now reads 512 bytes on its own, each as soon as the DMA engine has taken the last;
-2. run a DMA job copying 512 bytes from **port 0** to your buffer;
-3. read the 2 check bytes yourself, deselect, and send one more `$FF`.
+**CMD17** reads one block (its number, or for SDSC its byte address, as the argument). After R1, keep sending `$FF` until the card's start byte `$FE` arrives; then come 512 data bytes and 2 check bytes. Read them all with `spi`, deselect, and send one more `$FF`.
 
 ```asm
-; Example 8-1: read block d2 into BUF, by DMA (the card started, and selected)
-COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)  ; BLIT D = B, 8 bpp
+; Example 8-1: read block d2 into BUF (the card started, and selected)
 readblk:    moveq   #17,d1
             moveq   #-1,d3
             bsr     cmd
@@ -119,16 +113,12 @@ readblk:    moveq   #17,d1
             beq.s   .tok
             cmp.b   #$FE,d0
             bne     error               ; an error token
-            move.l  #512,SDCOUNT(a5)
-            lea     DMX0(a4),a0
-            move.l  #COPY8|(1<<DMX_CTRL_BKIND_B),DMX_CTRL(a0)     ; B from a port ...
-            move.l  #0,DMX_BPT(a0)                                ; ... port 0, the card
-            move.l  #BUF,DMX_DPT(a0)
-            move.l  #(1<<16)|512,DMX_SIZE(a0)                     ; 1 row of 512 bytes
-            move.l  #0,DMX_NEXT(a0)
-            move.l  #DMX_CHCTRL_RUN_M,DMX_CHCTRL(a0)
-.w:         btst    #DMX_CHSTAT_BUSY_B,DMX_CHSTAT+3(a0)
-            bne.s   .w
+            lea     BUF,a1
+            move.w  #512-1,d2
+.rd:        moveq   #-1,d0              ; the 512 data bytes
+            bsr     spi
+            move.b  d0,(a1)+
+            dbra    d2,.rd
             moveq   #-1,d0              ; the 2 check bytes
             bsr     spi
             moveq   #-1,d0
@@ -136,11 +126,11 @@ readblk:    moveq   #17,d1
             rts
 ```
 
-SDCOUNT stops the controller at the end of the data, so the check bytes are left for you. Instead of waiting, you can let the DMA channel interrupt when it is done.
+(Until November 2026 the DMA engine moved the data bytes, through a port and an SDCOUNT register. Both are gone: see the Blitter Hardware chapter.)
 
 ### Writing a block
 
-**CMD24** writes one block. After R1, send the start byte `$FE`, the 512 data bytes (by a DMA job copying from your buffer to port 0, or by the CPU), and 2 check bytes (`$FF $FF`). The card then answers with a byte whose low 5 bits are `00101` if it took the block; then it is busy, and reads as `$00`, until the write is done. Wait for a byte other than `$00` before the next command.
+**CMD24** writes one block. After R1, send the start byte `$FE`, the 512 data bytes, and 2 check bytes (`$FF $FF`). The card then answers with a byte whose low 5 bits are `00101` if it took the block; then it is busy, and reads as `$00`, until the write is done. Wait for a byte other than `$00` before the next command.
 
 For many blocks, CMD18 (read) and CMD25 (write) are faster: see the SD card spec (spec 15, section 3.4).
 
@@ -229,7 +219,6 @@ kbsend:     btst    #KBSTAT_TXBUSY_B-8,KBSTAT+2(a5)
 |------|--------|--------|----------|
 | SDCON | `$300` | RW | EN (0), CS0 (1), CS1 (2), CLKDIV (15–8). After reset: off, CLKDIV 125 (400 kHz) |
 | SDDATA | `$304` | RW | Write: send BYTE (7–0). Read: BYTE (7–0), BUSY (8) |
-| SDCOUNT | `$308` | RW | COUNT (15–0): bytes to read for DMA port 0 |
 | KBCON | `$400` | RW | EN (0) |
 | KBSTAT | `$404` | R | COUNT (4–0), TXBUSY (8) |
 | KBDATA | `$408` | R | BYTE (7–0), EMPTY (8); reading takes a byte |
@@ -237,4 +226,4 @@ kbsend:     btst    #KBSTAT_TXBUSY_B-8,KBSTAT+2(a5)
 | KBIRQ | `$410` | RW1C | DATA (0, live), PARITY (1), FRAME (2), OVERFLOW (3), TIMEOUT (4) |
 | KBIRQEN | `$414` | RW | As KBIRQ |
 
-All in the system block at `$F00000`. Related: DMA engine port 0 (the SD card; DMA Engine and Blitter Hardware chapter), interrupt source KEYB (17, Interrupts and Timers chapter).
+All in the system block at `$F00000`. Related: interrupt source KEYB (17, Interrupts and Timers chapter).

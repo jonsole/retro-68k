@@ -9,7 +9,7 @@ With a few instructions in its list, the copper can:
 - put the plane pointers back to the top of the picture at the start of every frame;
 - change colours partway down the screen, on every line, or even in the middle of a line;
 - open a split screen, with new plane pointers and a new layer format from a chosen line down;
-- turn DMA channels on and off, start DMA engine jobs, or interrupt the CPU at a chosen line.
+- turn DMA channels on and off, start blitter jobs, or interrupt the CPU at a chosen line.
 
 Because the copper's writes are tied to the beam, they happen at the same place on the screen in every frame, whatever the CPU is doing at the time. Effects that would take a busy interrupt handler, or would be impossible with one, cost the CPU nothing.
 
@@ -23,7 +23,7 @@ This chapter covers:
 - the copper's own registers: X and Y, arithmetic and conditions, storage registers, and subroutines;
 - the copper's registers, and starting and stopping the copper, step by step;
 - the two lists, the jump strobes, and double-buffered lists;
-- worked examples: colour bars, a gradient, a split screen, a colour change in the middle of a line, a copper interrupt, and waiting for the DMA engine;
+- worked examples: colour bars, a gradient, a split screen, a colour change in the middle of a line, a copper interrupt, and waiting for the blitter;
 - copper timing: pixel accuracy, the prefetched instruction, fetch speed and priority;
 - what the copper can and cannot reach.
 
@@ -42,7 +42,7 @@ If you have written Amiga copper lists, you will feel at home. The instructions 
 | MOVE | 16 bits of data to a custom register | The same: 16 bits to one half of a 32-bit register. A pointer takes two MOVEs, high half first |
 | Beam position | 8-bit line (wraps after line 255), across in steps of 4 low-resolution pixels | 11-bit line and pixel, **pixel exact**, over the whole frame, in beam coordinates |
 | Compare masks | Mask bits in WAIT and SKIP | No masks. A **pixel-only** WAIT ignores the line, so an effect repeats on every line |
-| Waiting for the blitter | BFD bit clear: WAIT also waits for the blitter | B bit set: WAIT also waits for the DMA engine |
+| Waiting for the blitter | BFD bit clear: WAIT also waits for the blitter | B bit set: WAIT also waits for the blitter |
 | Lists | COP1LC, COP2LC; strobes COPJMP1, COPJMP2; list 1 restarts each frame | The same. List 1 restarts at the start of the frame, beam line 0 (the start of the vertical blank) |
 | Jumping | A MOVE to COPJMP2 | JUMP to any address; the strobes still work |
 | End of list | WAIT for an impossible position (`$FFFFFFFE`) | STOP, or a WAIT for line 2047 |
@@ -112,7 +112,7 @@ The copper has nine instructions. Each is **32 bits** (two 16-bit words), at an 
 | (two MOVEs) | `CMOVEL reg,value` | Writes a whole 32-bit register: the high half, then the low half |
 | WAIT | `CWAIT line,pixel` | Waits until the beam reaches the position |
 | WAIT, pixel only | `CWAITP pixel` | Waits until the beam reaches the pixel position on this line, or on the next one if it has passed it |
-| WAIT with B | `CWAITB line,pixel` | As WAIT, and also until the DMA engine is idle |
+| WAIT with B | `CWAITB line,pixel` | As WAIT, and also until the blitter is idle |
 | SKIP | `CSKIP line,pixel` | Skips the next instruction if the beam has reached the position |
 | SKIP, pixel only | `CSKIPP pixel` | As SKIP, comparing the pixel position only |
 | JUMP | `CJUMP address` | Continues at the address |
@@ -272,9 +272,9 @@ Each block is 12 bytes instead of 16 with ordinary WAITs, and, more usefully, th
 
 A pixel-only WAIT relies on the copper finishing the block before the beam comes round again. A block that does more than about 150 instructions' worth of work, so that it runs past the next occurrence of its pixel position, makes the next WAIT wait for the line after, and the effect slips a line. Keep per-line blocks short.
 
-### Waiting for the DMA engine
+### Waiting for the blitter
 
-A WAIT with the **B** bit set, written `CWAITB line,pixel`, waits until the beam has reached the position **and** the DMA engine has nothing left to do. This is the Amiga's "wait for the blitter" (there, the BFD bit clear). It lets a list start a DMA engine job, wait for it to finish, and start the next. Example 5-12 shows it. The DMA engine is described in its own chapter, when it is built.
+A WAIT with the **B** bit set, written `CWAITB line,pixel`, waits until the beam has reached the position **and** the blitter has nothing left to do. This is the Amiga's "wait for the blitter" (there, the BFD bit clear). It lets a list start a blitter job, wait for it to finish, and start the next. Example 5-12 shows it. The blitter is described in its own chapter (Chapter 6).
 
 ---
 
@@ -739,7 +739,7 @@ The copper can write COP1LC and COP2LC too, with `CMOVEL`. A list can set COP2LC
 
 ### Background work: COPCON.RESUME
 
-Some copper work is not tied to the beam at all: a long queue of DMA engine jobs, say, each started when the one before it is done. Such a list may take several frames. On the Amiga it would be cut off at every vertical blank, when list 1 starts again. Here you can let it carry on, by setting **COPCON.RESUME**:
+Some copper work is not tied to the beam at all: a long queue of blitter jobs, say, each started when the one before it is done. Such a list may take several frames. On the Amiga it would be cut off at every vertical blank, when list 1 starts again. Here you can let it carry on, by setting **COPCON.RESUME**:
 
 - When the copper enters list 2 through COPJMP2, it remembers that it is "in list 2".
 - If it is still there when the vertical blank comes, the hardware writes its place in the list into **COP2LC**, and then starts list 1 as always.
@@ -757,7 +757,7 @@ The place saved is the instruction that was not finished: a WAIT that was still 
 
 A background list has to follow a few rules:
 
-- **No beam WAITs.** A WAIT for a beam position waits for it in the current frame, so after a resume it would wait for that position in the new frame. Use `CWAITB 0,0`: beam line 0, pixel 0 is the first position of every frame, and always passed, so this waits for the DMA engine only.
+- **No beam WAITs.** A WAIT for a beam position waits for it in the current frame, so after a resume it would wait for that position in the new frame. Use `CWAITB 0,0`: beam line 0, pixel 0 is the first position of every frame, and always passed, so this waits for the blitter only.
 - **Mind a pair cut in two.** If the cut-off comes between the two halves of a `CMOVEL`, list 2 carries on from the low half after the frame's list 1: in between, the register holds the new high half and the old low half (a palette entry keeps the copper's held high half, unless list 1 writes a palette high half itself). Write the registers list 2 uses where that does no harm, or write them in list 1.
 - **End by pointing COP2LC at an idle list.** Otherwise the next COPJMP2 runs the list again from the last place saved.
 - **The CPU hands out work only when the copper is idle.** While a background list runs, the hardware may overwrite COP2LC at the next vertical blank. So the CPU writes COP2LC only when the copper is in the idle list: COPPC tells it where the copper is, or the idle list can raise a COPINT when it is reached.
@@ -765,21 +765,21 @@ A background list has to follow a few rules:
 ### Example 5-7: A background job queue
 
 ```asm
-; Example 5-7: list 2 runs a queue of DMA engine jobs in the background,
+; Example 5-7: list 2 runs a queue of blitter jobs in the background,
 ; across as many frames as it takes. List 1 is the one in Example 5-6.
-; JOB1-JOB3 are descriptor chains for DMA engine channel 0 (see Example 5-12).
+; JOB1-JOB3 are the blitter's descriptor chains (see Example 5-12).
 
             cnop    0,4
 idle:       CSTOP                                   ; list 2 when there is no work
 
-jobs:       CMOVEL  DMX0+DMX_CHDESC,JOB1
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M
-            CWAITB  0,0                             ; until the engine is idle
-            CMOVEL  DMX0+DMX_CHDESC,JOB2
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M
+jobs:       CMOVEL  BLTDESC,JOB1
+            CMOVE   BLTCMD+2,BLTCMD_START_M
+            CWAITB  0,0                             ; until the blitter is idle
+            CMOVEL  BLTDESC,JOB2
+            CMOVE   BLTCMD+2,BLTCMD_START_M
             CWAITB  0,0
-            CMOVEL  DMX0+DMX_CHDESC,JOB3
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M
+            CMOVEL  BLTDESC,JOB3
+            CMOVE   BLTCMD+2,BLTCMD_START_M
             CWAITB  0,0
             CMOVEL  COP2LC,idle                     ; done: back to the idle list
             CMOVE   COPINT+2,0                      ; tell the CPU
@@ -999,29 +999,28 @@ The example sets the source's level itself (5, the level of the other video inte
 
 A write to COPINT sets the flag once. If the flag is still set from an earlier write that the handler has not yet cleared, the two count as one, so leave the handler enough time between two COPINTs: the CPU takes at least 3 µs to start a handler.
 
-### Example 5-12: Waiting for the DMA engine (later)
+### Example 5-12: Waiting for the blitter
 
-The DMA engine is not built yet, and its registers are not described in this guide yet. This example shows only the shape of a list that uses it: the copper starts a DMA engine job at line 0, then waits for line 300 **and** for the engine to finish before starting a second one. On the Amiga, lists do the same with the blitter: a copper-driven blit, then a WAIT with BFD clear before the next.
+The copper starts a blitter job at line 0, then waits for line 300 **and** for the blitter to finish before starting a second one. (The blitter's registers are described in Chapter 6.) On the Amiga, lists do the same with the blitter: a copper-driven blit, then a WAIT with BFD clear before the next.
 
 ```asm
-; Example 5-12 (later): the copper starts DMA engine jobs. JOB1 and JOB2
-; are descriptor chains in Chip RAM, set up as the DMA engine chapter will
-; describe. Uses DMA engine channel 0.
+; Example 5-12: the copper starts blitter jobs. JOB1 and JOB2 are
+; descriptor chains in Chip RAM, set up as the blitter chapter describes.
 
 JOB1        equ     $060000
 JOB2        equ     $060100
 
             cnop    0,4
 dma_list:   CWAIT   VID_Y0,0                        ; the start of the picture
-            CMOVEL  DMX0+DMX_CHDESC,JOB1            ; channel 0: the first job ...
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M    ; ... start it
-            CWAITB  VID_Y0+300,0                    ; line 300, and the engine idle
-            CMOVEL  DMX0+DMX_CHDESC,JOB2            ; the second job
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M
+            CMOVEL  BLTDESC,JOB1                    ; the first job ...
+            CMOVE   BLTCMD+2,BLTCMD_START_M         ; ... start it
+            CWAITB  VID_Y0+300,0                    ; line 300, and the blitter idle
+            CMOVEL  BLTDESC,JOB2                    ; the second job
+            CMOVE   BLTCMD+2,BLTCMD_START_M
             CSTOP
 ```
 
-`CWAITB` waits for the engine to have **nothing** to do, including jobs started by the CPU. If a job runs late, the copper's later writes in the list come late too; and if the engine is still busy at the next vertical blank, the list starts again regardless. So do not put a `CWAITB` before writes that must happen at a fixed place on the screen, such as the plane pointers, and keep `CWAITB` for the end of a list.
+`CWAITB` waits for the blitter to have **nothing** to do, including jobs started by the CPU. If a job runs late, the copper's later writes in the list come late too; and if the blitter is still busy at the next vertical blank, the list starts again regardless. So do not put a `CWAITB` before writes that must happen at a fixed place on the screen, such as the plane pointers, and keep `CWAITB` for the end of a list.
 
 ## The Copper's Registers and Arithmetic
 
@@ -1076,7 +1075,7 @@ None of them change the flags.
                                 ; X = colour 6, high half
 ```
 
-**The halves rule still holds.** A MOVR writes its half at once, exactly as a CMOVE does (a palette entry's high half is held until the copper's low-half write). Strobes (COPJMP1, COPJMP2, COPINT, a DMA engine start) act on a write to their low half, whether it comes from a MOVE or a MOVR. A MOVR can reach only the custom block, as a MOVE can.
+**The halves rule still holds.** A MOVR writes its half at once, exactly as a CMOVE does (a palette entry's high half is held until the copper's low-half write). Strobes (COPJMP1, COPJMP2, COPINT, a blitter start) act on a write to their low half, whether it comes from a MOVE or a MOVR. A MOVR can reach only the custom block, as a MOVE can.
 
 **How a MOVR is made up.** The macros build it; this is for reading a list in memory:
 
@@ -1287,10 +1286,10 @@ The CPU's write lands between two copper instructions, so the copper sees either
 
 ### Example 5-16: A background list that uses the registers
 
-This is Example 5-7's job queue with a loop: 100 DMA engine jobs, one after another, with Y pointing at the next job's descriptor. With COPCON.RESUME, the list can be cut off anywhere at the vertical blank, and carries on from there in the next frame (see "Background work: COPCON.RESUME"). Only its place is saved by the hardware, so list 1 must leave X, Y and the flags as it found them: it saves them in storage registers before it uses them, and puts them back before its COPJMP2.
+This is Example 5-7's job queue with a loop: 100 blitter jobs, one after another, with Y pointing at the next job's descriptor. With COPCON.RESUME, the list can be cut off anywhere at the vertical blank, and carries on from there in the next frame (see "Background work: COPCON.RESUME"). Only its place is saved by the hardware, so list 1 must leave X, Y and the flags as it found them: it saves them in storage registers before it uses them, and puts them back before its COPJMP2.
 
 ```asm
-; Example 5-16: list 2 starts 100 DMA engine jobs, whose descriptors
+; Example 5-16: list 2 starts 100 blitter jobs, whose descriptors
 ; are JOBSIZE bytes apart from JOBS, in one 64 KB block. List 1 uses X,
 ; Y and the flags too, so it saves list 2's in R5-R7.
 
@@ -1311,10 +1310,10 @@ list1:      CST     CR5,CX              ; save list 2's registers
 idle:       CSTOP
 
 jobs:       CLDI    CY,JOBS&$FFFF       ; the first descriptor
-.next:      CMOVE   DMX0+DMX_CHDESC,JOBS>>16    ; descriptor, high half ...
-            CMOVR   DMX0+DMX_CHDESC+2,CY        ; ... low half
-            CMOVE   DMX0+DMX_CHCTRL+2,DMX_CHCTRL_START_M    ; start it
-            CWAITB  0,0                 ; until the engine is idle
+.next:      CMOVE   BLTDESC,JOBS>>16    ; descriptor, high half ...
+            CMOVR   BLTDESC+2,CY        ; ... low half
+            CMOVE   BLTCMD+2,BLTCMD_START_M    ; start it
+            CWAITB  0,0                 ; until the blitter is idle
             CADDI   CY,JOBSIZE
             CCMPI   CY,(JOBS+NJOBS*JOBSIZE)&$FFFF
             CSKIPHS                     ; all 100 done?
@@ -1403,8 +1402,8 @@ Normally the copper takes cycle 4 and leftover cycles, after the display and the
 
 | PRI | Name | The copper gets |
 |-----|------|-----------------|
-| 0 | Normal | Cycle 4 and the cycles nobody else wants, after the display and audio, ahead of the CPU and the DMA engine (the default) |
-| 1 | High | Cycle 4 as its own, and first place among the leftover cycles: ahead of audio, the DMA engine and display fetches that are not urgent. The display keeps its own cycles 1 and 3 |
+| 0 | Normal | Cycle 4 and the cycles nobody else wants, after the display and audio, ahead of the CPU and the blitter (the default) |
+| 1 | High | Cycle 4 as its own, and first place among the leftover cycles: ahead of audio, the blitter and display fetches that are not urgent. The display keeps its own cycles 1 and 3 |
 | 2 | Nasty | As 1, and while it has an instruction to fetch it owns the CPU's cycle 0, like the Amiga's "blitter nasty" mode. The CPU's Chip RAM accesses then wait for cycles the copper leaves |
 
 At every level, a display fetch that is about to be late still comes first, so raising the copper's priority never spoils the picture. And priority matters only while the copper has an instruction to fetch: while it waits, it takes nothing, whatever PRI says.
@@ -1412,7 +1411,7 @@ At every level, a display fetch that is about to be late still comes first, so r
 When to use them:
 
 - **PRI 0** for almost every list. Copper lists are short, and most of the copper's time is spent waiting.
-- **PRI 1** when a burst of writes must fit in a short gap: new plane pointers between a layer's last fetch and the start of the next line (Example 5-9), many colour changes in one horizontal blank, or writes on a screen that is close to its fetch budget, where the display leaves few spare cycles. The cost is small: the DMA engine and audio wait a little.
+- **PRI 1** when a burst of writes must fit in a short gap: new plane pointers between a layer's last fetch and the start of the next line (Example 5-9), many colour changes in one horizontal blank, or writes on a screen that is close to its fetch budget, where the display leaves few spare cycles. The cost is small: the blitter and audio wait a little.
 - **PRI 2** only when even that is not enough, for short bursts. It slows the CPU while the copper fetches.
 
 The copper can write COPCON itself, so a list can raise its priority just before a burst and lower it after:
@@ -1440,7 +1439,7 @@ Both can write the same register. The last write wins, and the halves never mix,
 | Area | The copper can |
 |------|----------------|
 | Chip RAM | Read its list. Nothing else: it cannot write Chip RAM |
-| Custom block, `$E00000`–`$E07FFF` | Write: video and layer registers, DMACON, the DMA engine, audio, its own registers, and the palette at `$E04000` |
+| Custom block, `$E00000`–`$E07FFF` | Write: video and layer registers, DMACON, the blitter, audio, its own registers, and the palettes at `$E04000` |
 | Custom block above `$E07FFF` | Nothing (a MOVE's offset is at most `$7FFE`) |
 | System block, `$F00000` | Nothing: not the interrupt controller, timers, serial or system control |
 | Boot ROM | Nothing: a list must be in Chip RAM |
@@ -1464,7 +1463,7 @@ Some consequences:
 | MOVE × 2 | `CMOVEL reg,value` | Two MOVEs: reg, then reg + 2 | Writes a whole 32-bit register |
 | WAIT | `CWAIT line,pixel` | `$80000000` + line << 16 + pixel | Waits until the beam reaches the position in this frame |
 | WAIT (P) | `CWAITP pixel` | `$88000000` + pixel | Waits for the pixel position on this line, or the next if passed |
-| WAIT (B) | `CWAITB line,pixel` | `$80008000` + line << 16 + pixel | As WAIT, and until the DMA engine is idle |
+| WAIT (B) | `CWAITB line,pixel` | `$80008000` + line << 16 + pixel | As WAIT, and until the blitter is idle |
 | SKIP | `CSKIP line,pixel` | `$90000000` + line << 16 + pixel | Skips the next instruction if the beam has reached the position |
 | SKIP (P) | `CSKIPP pixel` | `$98000000` + pixel | As SKIP, pixel position only |
 | JUMP | `CJUMP address` | `$A0000000` + address (22–2) | Continues at the address |
@@ -1525,7 +1524,7 @@ The copper interrupt is source 2, COPPER (vector 66 with the default VECBASE): C
 | `COP_OP_SHIFT` | 28 | Position of the op field (bits 30–28) |
 | `COP_OP_WAIT` ... `COP_OP_STOP` | 0 ... 3 | WAIT, SKIP, JUMP, STOP |
 | `COP_PIXONLY` | `$08000000` | Bit 27, P: compare the pixel position only |
-| `COP_BLT` | `$00008000` | Bit 15, B: WAIT also waits for the DMA engine |
+| `COP_BLT` | `$00008000` | Bit 15, B: WAIT also waits for the blitter |
 | `COP_V_SHIFT`, `COP_H_SHIFT` | 16, 0 | Positions of the line and pixel fields |
 | `COP_OP_MOVR` ... `COP_OP_CALL`, `COP_FN_LD` ... `COP_FN_CMP`, `COP_CC_EQ` ... `COP_CC_LS` | | The new instructions' fields |
 | `CX`, `CY`, `CF`, `CR0`–`CR7` | | Operands of the register macros, in `copper.inc` |

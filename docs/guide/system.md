@@ -50,7 +50,7 @@ The board has no LEDs or switches for the computer to use. Start-up progress is 
 | Interrupts | The interrupt controller, levels, vectors, NMI, the software interrupt |
 | Timers | The time counter, the four timers and the watchdog |
 
-The **copper** has its own chapter (Chapter 5), written against its spec ahead of the hardware. Several more blocks are specified and will get their own chapters when they are built: the **DMA engine and blitter**, **audio**, the **keyboard** and the **SD card**. This guide does not describe their registers yet. You will see their names in a few places, such as the DMACON register, so that you know where they will fit.
+The **copper** has its own chapter (Chapter 5), written against its spec ahead of the hardware. The **blitter** (Chapter 6), and the **SD card** and **keyboard** (Chapter 8), have theirs. **Audio** is specified and built, and will get its chapter; this guide does not describe its registers yet. You will see their names in a few places, such as the DMACON register, so that you know where they will fit.
 
 ### Conventions in This Guide
 
@@ -85,8 +85,8 @@ The 68000 has a 24-bit address bus, giving 16 MB of address space. retro68k uses
    $F00000  +--------------------------------+
             |   unmapped (bus error)         |
    $E10000  +--------------------------------+
-            |   Custom block, 64 KB          |  video, DMACON, palette (copper,
-            |                                |  DMA engine and audio later)
+            |   Custom block, 64 KB          |  video, DMACON, palettes, copper,
+            |                                |  blitter, audio
    $E00000  +--------------------------------+
             |                                |
             |   reserved (bus error)         |
@@ -121,7 +121,7 @@ Inside the custom and system blocks, addresses that hold no register read as 0 a
 |--------|----------|
 | `$0000`–`$00FF` | Video registers and DMACON (Video chapter) |
 | `$0100`–`$027F` | Bitmap layers 0–2 (Video chapter) |
-| `$0300`–`$07FF` | Reserved for the DMA engine, audio and the copper |
+| `$0300`–`$07FF` | The blitter, audio and the copper |
 | `$4000`–`$43FF` | Palette: 256 colours, one long word each, `$00RRGGBB` |
 
 ### The System Block
@@ -136,7 +136,7 @@ Inside the custom and system blocks, addresses that hold no register read as 0 a
 
 ### Who Can Reach What
 
-The CPU reaches everything. DMA hardware sees Chip RAM and, for some units, the custom block and the boot ROM. The system block, where the interrupt controller and the system control registers live, is out of reach of DMA, so a runaway DMA job cannot change them.
+The CPU reaches everything. DMA hardware (the display, audio, the blitter) sees Chip RAM only; the copper also writes the custom block. The system block, where the interrupt controller and the system control registers live, is out of reach of both, so a runaway copper list or blitter job cannot change them.
 
 With **SYSCON.PROTECT** set, a CPU access in user mode to anything from `$E00000` upwards, including the boot ROM, gives a bus error. An operating system can use this one bit to keep user programs away from the hardware. Chip RAM is always open to user mode.
 
@@ -164,7 +164,7 @@ The memory chip can do one 16-bit read or write every 20 ns. That is one **memor
 |-------|-------|
 | 0 | The CPU. If the CPU does not need it, other DMA may use it |
 | 1, 3 | Display fetch for the bitmap layers, spread out across the slot. If the display does not need them, other DMA may use them |
-| 2, 4 | Other DMA: later the audio (2), copper and DMA engine (4) |
+| 2, 4 | Other DMA: audio (2), the copper and the blitter (4) |
 
 Every scan line is a whole number of slots, and the slot count starts again at each line. So every DMA user gets its cycles at the same beam position on every line, as on the Amiga.
 
@@ -191,16 +191,16 @@ A 68000 bus cycle takes 4 CPU clocks, 200 ns: two slots. The CPU needs at most o
 
 So the CPU normally runs **with no wait states** from Chip RAM, ROM and registers alike. The display, and later the audio and normal DMA, use their own cycles and any the CPU leaves. As on the Amiga, a bitplane fetch that would otherwise be late takes the CPU's cycle 0 (and a copper set to "nasty" priority may too); that Chip RAM access then waits one slot, 2 CPU clocks. Screens well inside the budget almost never do this; heavy ones slow the CPU a little on the lines that need it. ROM and register accesses never wait.
 
-Software can add more: a copper set to "nasty" priority (COPCON.PRI = 2), or a DMA engine job with HIGH set, owns cycle 0 while it asks, and the CPU then waits for the cycles it leaves. A long HIGH job can hold the CPU off for as long as it runs, interrupts included.
+Software can add more: a copper set to "nasty" priority (COPCON.PRI = 2) owns cycle 0 while it asks, and the CPU then waits for the cycles it leaves.
 
 ### The Slot Plan
 
-Who owns each of the 5 cycles is set by five registers, **MEMSLOT0–MEMSLOT4** (`$E00098`–`$E000A8`), one per cycle. Bits 0–6 of each are its owners, one bit per user: BPL (layers), SPR (sprites), AUD, COP, CPU, BLT (the DMA engine) and PORT. Bit 7, LOCK, stops an urgent display fetch from taking that cycle. After reset they hold the plan above: `$10` (CPU), `$03` (layers and sprites), `$04` (audio), `$03`, `$00`.
+Who owns each of the 5 cycles is set by five registers, **MEMSLOT0–MEMSLOT4** (`$E00098`–`$E000A8`), one per cycle. Bits 0–6 of each are its owners, one bit per user: BPL (layers), SPR (sprites), AUD, COP, CPU, BLT (the blitter) and PORT. Bit 7, LOCK, stops an urgent display fetch from taking that cycle. After reset they hold the plan above: `$10` (CPU), `$03` (layers and sprites), `$04` (audio), `$03`, `$00`.
 
-A cycle whose owners don't want it goes to whoever does, so owning a cycle costs nobody bandwidth, only their place in the queue. Users without a cycle of their own take turns in a fixed order: high-priority requests first (a copper at PRI 1 or 2, a HIGH DMA engine job), then the layers, sprites, audio, copper, CPU, DMA engine and port.
+A cycle whose owners don't want it goes to whoever does, so owning a cycle costs nobody bandwidth, only their place in the queue. Users without a cycle of their own take turns in a fixed order: high-priority requests first (a copper at PRI 1 or 2), then the layers, sprites, audio, copper, CPU, blitter and port.
 
 ```asm
-            move.b  #MEMSLOT0_BLT_M,MEMSLOT0+3(a4)      ; a big blit: the DMA engine owns cycle 0
+            move.b  #MEMSLOT0_BLT_M,MEMSLOT0+3(a4)      ; a big blit: the blitter owns cycle 0
             ; ... the blit runs; the CPU gets only the cycles it leaves ...
             move.b  #MEMSLOT0_CPU_M,MEMSLOT0+3(a4)      ; the CPU back
 ```
@@ -232,7 +232,7 @@ DMACON turns DMA on and off, as on the Amiga. Its 16-bit value is in the low hal
 | 9 | DMAEN | Master enable for all the DMA below |
 | 8 | BPLEN | Bitplane DMA for the layers |
 | 7 | COPEN | Copper (later) |
-| 6 | BLTEN | DMA engine / blitter (later) |
+| 6 | BLTEN | The blitter (Chapter 6) |
 | 5 | SPREN | Sprite DMA (see the Sprite Hardware chapter) |
 | 3–0 | AUD3EN–AUD0EN | Audio channels 3–0 (later) |
 
@@ -274,7 +274,7 @@ The 68000 moves a long word as two 16-bit bus cycles, the high word first (in ev
 
 So between the two writes of a `MOVE.L`, the register holds the new high half and the old low half, for about 200 ns. That does not matter for most registers. For one the hardware is using as you write it, such as a plane pointer or a sprite pointer, write it where the hardware is not using it: in the vertical blank, or from the copper, as on the Amiga.
 
-**Palette entries are the exception.** A colour must change all at once, even in the middle of a line, so a write to an entry's high half (red) is held until the next write to the same entry's low half (green and blue), which writes the whole colour. A `MOVE.L` to a palette entry is always seen whole. The CPU, the copper and the DMA engine each have their own hold, so they cannot mix up each other's colours.
+**Palette entries are the exception.** A colour must change all at once, even in the middle of a line, so a write to an entry's high half (red) is held until the next write to the same entry's low half (green and blue), which writes the whole colour. A `MOVE.L` to a palette entry is always seen whole. The CPU and the copper each have their own hold, so they cannot mix up each other's colours.
 
 **Do not use CLR.L on a FIFO data register** such as SERDATA: the 68000's CLR.L reads the register before writing it, which takes a byte out. `MOVE.L #0` is always safe.
 
@@ -295,7 +295,7 @@ So a `MOVE.L` of a register that is changing, such as BEAMPOS or a timer's COUNT
 
 ### Rule 5: Reading Has No Side Effects, Except for FIFOs
 
-Reading a register does not change it, with a few exceptions in the system block: reading the **low half** of a FIFO data register (SERDATA, KBDATA) takes a byte out, reading SERDROP's low half clears it, and reading TIMEHI's high half captures TIME. A `MOVE.L` of SERDATA (the high half, then the low) takes exactly one byte. None of these are in the custom block, so DMA hardware can never disturb anything by reading.
+Reading a register does not change it, with a few exceptions in the system block: reading the **low half** of a FIFO data register (SERDATA, KBDATA) takes a byte out, reading SERDROP's low half clears it, and reading TIMEHI's high half captures TIME. A `MOVE.L` of SERDATA (the high half, then the low) takes exactly one byte. None of these are in the custom block.
 
 ### Rule 6: Sticky Flags Are Cleared by Writing 1
 
