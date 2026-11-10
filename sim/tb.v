@@ -511,7 +511,7 @@ module tb;
                 if (!$test$plusargs("rom=")) check_bitmap;
             end
             report;
-            // +dumpram=FILE: Chip RAM 0x0F0000-0x1FFFFF at the end (the DMA test)
+            // +dumpram=FILE: Chip RAM 0x0F0000-0x1FFFFF at the end (the blitter test)
             if ($value$plusargs("dumpram=%s", dumpfile)) begin
                 df = $fopen(dumpfile, "w");
                 $fwrite(df, "@%h\n", 21'h78000);
@@ -576,12 +576,15 @@ module tb;
         #1 $readmemh(romfile, dut.rom.mem);
         $display("boot ROM: %0s", romfile);
     end
-    // +dmxsend: the PC sends 64 bytes (7i + 3) early on, for the DMA test's
-    // port job to copy into memory
-    initial if ($test$plusargs("dmxsend")) begin : dmxsend
-        integer i;
-        #50000;
-        for (i = 0; i < 64; i = i + 1) ft.send(i * 7 + 3);
+    // +blttime: each blitter run (a job or a chain): its time and its memory cycles
+    integer blt_t0 = 0, blt_n = 0;
+    reg     blt_was = 0;
+    always @(posedge clk100) if ($test$plusargs("blttime")) begin
+        if (dut.blt_ack) blt_n = blt_n + 1;
+        if (dut.dx.core.busy && !blt_was) begin blt_t0 = $time; blt_n = 0; end
+        if (!dut.dx.core.busy && blt_was)
+            $display("%t blitter: %0d ns, %0d memory cycles", $realtime, $time - blt_t0, blt_n);
+        blt_was = dut.dx.core.busy;
     end
 
     // +ram=FILE: Chip RAM contents at the start ($readmemh of 16-bit words, with @addresses)

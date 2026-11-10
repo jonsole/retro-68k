@@ -94,9 +94,9 @@ ctest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
 	python3 ctest/ccheck.py $$d
 
-# DMA engine test (spec 11): random jobs on the 4 channels (dtest/dgen.py;
-# SEED picks them), then every byte of the test area checked against a
-# Python model (dtest/dmodel.py)
+# Blitter test (spec 11): chains of random jobs (dtest/dgen.py; SEED picks
+# them), then every byte of the test area checked against a Python model
+# (dtest/dmodel.py); and directed tests checked by the test ROM
 SEED = 11
 dtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	@set -e; d=$(BUILD)/dtest; mkdir -p $$d; \
@@ -104,12 +104,12 @@ dtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	python3 $(ROOT)/tools/bin2hex.py $$d/dtest.bin $$d/dtest.hex; \
 	python3 dtest/dgen.py $$d $(SEED); \
 	cp $(BUILD)/microrom.mem $(BUILD)/nanorom.mem $$d/; \
-	(cd $$d && $(VVP) -n ../tb.vvp +rom=dtest.hex +ram=ram.hex +dumpram=after.hex +dmxsend > sim.log); \
+	(cd $$d && $(VVP) -n ../tb.vvp +rom=dtest.hex +ram=ram.hex +dumpram=after.hex > sim.log); \
 	grep -a "^FAIL\|^PASS" $$d/sim.log || true; \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
 	python3 dtest/dmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex
 
-# I/O test (specs 15, 16): the SD card (start-up, blocks by DMA and by the CPU)
+# I/O test (specs 15, 16): the SD card (start-up, a block read and written)
 # and the PS/2 keyboard (receiving, a bad frame, sending), against the
 # testbench's models
 iotest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
