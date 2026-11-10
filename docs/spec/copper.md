@@ -26,7 +26,7 @@ The copper is a small coprocessor that follows the beam, as on the Amiga: it run
 | Subroutines | None | CALL and RET, with a stack 8 deep (section 4.4) |
 | MOVE | 16-bit data to a custom register | The same: 16-bit data to a register half; a 32-bit register (a BPLxPT) takes two MOVEs, high half first |
 | WAIT/SKIP position | 8-bit line (wraps after line 255), horizontal in steps of 4 low-resolution pixels, with compare masks | 11-bit line and pixel, pixel exact. No masks: a **pixel-only** WAIT repeats an effect on every line |
-| Waiting for the blitter | BFD bit in WAIT | The same: the BLT bit waits until the DMA engine is idle too |
+| Waiting for the blitter | BFD bit in WAIT | The same: the BLT bit waits until the blitter is idle too |
 | Lists | COP1LC, COP2LC; strobes COPJMP1, COPJMP2; list 1 restarts each frame | The same, plus COPCON.RESUME: a list 2 cut off by the vertical blank can carry on where it stopped (section 6.1) |
 | Jumping | A MOVE to COPJMP2 | JUMP to any address; the strobes still work |
 | End of list | WAIT for an impossible position ($FFFFFFFE) | STOP, or a WAIT for line 2047 (the Amiga's $FFFFFFFE itself is a reserved pattern here: it stops too, but sets COPSTAT.ERR) |
@@ -60,7 +60,7 @@ Every instruction is 32 bits, at a 4-byte-aligned address. Bit 31 says which kin
 | Instruction | Does |
 |-------------|------|
 | **MOVE** | Writes the 16-bit data to the register half at that byte offset in the custom block (`0xE00000` + offset). An offset with bit 1 clear is a high half, with bit 1 set a low half. Each MOVE writes its half at once, keeping the other half (spec 3, section 2), as on the Amiga: a 32-bit register (a BPLxPT) takes two MOVEs, high half first, and holds the new high half and the old low half in between. A palette entry is the exception: its high half is held (one for the copper, apart from the CPU's) until the copper's next MOVE to its low half, so a colour changes all at once. 16-bit registers (BPLxDAT, BPLSTRIDE, DMACON, the strobes) need one MOVE, to their low half |
-| **WAIT** | Waits until the beam has reached the position (section 3): it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position is reached on the current line, or on the next line if it has already passed. With **B** set, it also waits until the DMA engine (spec 11) is idle: no job running or waiting to start, including one a MOVE just before started |
+| **WAIT** | Waits until the beam has reached the position (section 3): it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position is reached on the current line, or on the next line if it has already passed. With **B** set, it also waits until the blitter (spec 11) is idle: no job or chain running, including one a MOVE just before started |
 | **SKIP** | If the beam has reached the position, skips the next instruction. With P set, compares the pixel position only |
 | **JUMP** | Continues at the address |
 | **STOP** | Stops until the next frame (or a COPJMP strobe). A WAIT for line 2047 does the same, as on the Amiga |
@@ -149,13 +149,13 @@ Macros `CCALL address`, `CRET`.
 - **Beam position:** the copper compares against the beam position seen on the memory side (spec 4, section 3.1), a few clocks behind the pixel clock. A WAIT ends within about one pixel of its position.
 - **MOVE after a WAIT:** the next instruction is already fetched, so the write happens 10–20 ns after the WAIT ends. Writes that follow need their own fetches.
 - **Every instruction is one fetch** (two words), the new ones included; an ALU instruction takes one extra clock. JUMP, CALL, RET and a SKIP or SKIPC that skips throw the prefetched instruction away, so the instruction after them is fetched fresh. A loop therefore costs a fetch for every instruction in it, every pass: unrolled MOVEs are faster, loops are shorter.
-- **Fetches:** each instruction is two 16-bit words. At PRI 0 the copper's channel is best effort: it gets cycle 4 and any other cycle its owners leave, ahead of the CPU and the DMA engine but after the display and audio (spec 5, section 6), which is usually plenty but not guaranteed on a busy screen. At PRI 1 it goes first for every cycle its owners leave, so cycle 4 (owned by nobody) is in effect its own: at least 20 MB/s, one instruction every 200 ns or better (about 5 pixels at 576p), and faster when the memory is quiet: in simulation, with one word fetched at a time, one instruction every 140 ns (about 4 pixels) in the vertical blank.
+- **Fetches:** each instruction is two 16-bit words. At PRI 0 the copper's channel is best effort: it gets cycle 4 and any other cycle its owners leave, ahead of the CPU and the blitter but after the display and audio (spec 5, section 6), which is usually plenty but not guaranteed on a busy screen. At PRI 1 it goes first for every cycle its owners leave, so cycle 4 (owned by nobody) is in effect its own: at least 20 MB/s, one instruction every 200 ns or better (about 5 pixels at 576p), and faster when the memory is quiet: in simulation, with one word fetched at a time, one instruction every 140 ns (about 4 pixels) in the vertical blank.
 - **Priority (COPCON.PRI):** a list that must make many writes quickly can raise the copper's priority:
 
   | PRI | The copper gets |
   |-----|-----------------|
-  | 0, normal | Cycle 4 and the cycles their owners leave, after the display and audio, ahead of the CPU and the DMA engine (the default) |
-  | 1, high | A **high** request: first place among the cycles their owners leave, ahead of the display fetches that are not urgent, audio and the DMA engine. Cycle 4, owned by nobody, is in effect its own. The display keeps its own cycles 1 and 3 |
+  | 0, normal | Cycle 4 and the cycles their owners leave, after the display and audio, ahead of the CPU and the blitter (the default) |
+  | 1, high | A **high** request: first place among the cycles their owners leave, ahead of the display fetches that are not urgent, audio and the blitter. Cycle 4, owned by nobody, is in effect its own. The display keeps its own cycles 1 and 3 |
   | 2, nasty | As 1, and while it asks it owns cycle 0 in place of the CPU, like the Amiga's blitter-nasty mode; the CPU's accesses then wait for cycles the copper leaves |
   | 3 | As 1 |
 
@@ -199,7 +199,7 @@ Offsets in the custom register block at `0xE00000`.
 
 ### 6.1 Background lists: COPCON.RESUME
 
-The copper can run a long **background** list, such as a queue of DMA engine jobs, that carries on across frames while list 1 still restarts at every vertical blank. On the Amiga, the vertical blank simply cuts list 2 off. Here, with COPCON.RESUME set:
+The copper can run a long **background** list, such as a queue of blitter jobs, that carries on across frames while list 1 still restarts at every vertical blank. On the Amiga, the vertical blank simply cuts list 2 off. Here, with COPCON.RESUME set:
 
 - The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 2047, or a reserved instruction), the vertical blank, and turning the copper off (COPCON.EN, DMACON.COPEN or DMAEN cleared) clear it, so a COP2LC written while the copper is off is never replaced. JUMP, CALL, RET and the SKIPs leave it as it is, so a background list can loop, branch and call subroutines.
 - At the vertical blank, if the flag is set, the hardware writes the **resume address** to COP2LC before it reloads from COP1LC. The resume address is the instruction not yet finished: a WAIT still waiting (it runs again, whole), or the next instruction to run. (A palette entry's high half the copper had held stays held across the cut-off, so the pair's low half still writes the whole colour, unless list 1 writes a palette high half first.)
@@ -212,7 +212,7 @@ Without RESUME (the default), COP2LC is never changed by the hardware, as on the
 Rules for a background list:
 
 - Its WAITs should be pixel-only, BLT-only (WAITB for a position already passed, such as line 0, pixel 0) or none: after a resume, a beam WAIT would wait for its position in the new frame.
-- Some MOVEs may run twice: if the cut-off comes between the two halves of a pair, everything from the high-half MOVE on runs again. Keep the pairs together, and never put a strobe (such as one that starts a DMA engine job) between the halves of a pair, so that a strobe never runs twice.
+- Some MOVEs may run twice: if the cut-off comes between the two halves of a pair, everything from the high-half MOVE on runs again. Keep the pairs together, and never put a strobe (such as one that starts a blitter job) between the halves of a pair, so that a strobe never runs twice.
 - When it is done, it should set COP2LC to an idle list (`CMOVEL COP2LC,idle` then `CSTOP`, where `idle` is a STOP), so that the next frame's COPJMP2 does not run it again from the last saved place.
 - While RESUME is set and a background list is running, the CPU's writes to COP2LC may be replaced at the next vertical blank. To queue new work, the CPU writes COP2LC only while the copper runs the idle list (COPPC tells it where the copper is), or it adds the work to a queue that the background list reads.
 

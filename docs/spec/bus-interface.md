@@ -14,7 +14,7 @@ On the ZX Spectrum Next KS3 board the CPU is always fx68k inside the FPGA. The e
 | CPU speed | 20 MHz: fx68k clocked at 40 MHz with alternating phase enables |
 | Clock crossing | 40 MHz and 100 MHz come from the same MMCM and line up every 50 ns. Signals cross at fixed points with at least 15 ns to settle, so no synchronisers and no uncertainty |
 | Bus | 68000 asynchronous bus: /AS, /UDS, /LDS, R/W, /DTACK, /BERR, FC0–2, IPL0–2. /VPA, E, bus arbitration and /HALT input are not used |
-| Wait states | None for ROM, block RAM and registers. None for Chip RAM, except when an urgent display fetch takes the CPU's memory cycle, or a nasty copper, a HIGH DMA engine job or a changed slot plan owns it: then 2 or more (spec 5, section 6) |
+| Wait states | None for ROM, block RAM and registers. None for Chip RAM, except when an urgent display fetch takes the CPU's memory cycle, or a nasty copper or a changed slot plan owns it: then 2 or more (spec 5, section 6) |
 | Bus errors | Unmapped addresses, writes to ROM, and (optionally) user-mode accesses to hardware |
 | Interrupts | Vectored; the interrupt controller answers the acknowledge cycle with no wait states |
 | Reset | fx68k reset from the system reset (spec 7); its RESET instruction resets the devices; a halted CPU (double bus fault) is detected |
@@ -90,7 +90,7 @@ For block RAM, registers and ROM, the data is ready well before 160 ns. So all t
 
 | Target | Wait |
 |--------|------|
-| Chip RAM | 0 normally. When an urgent display fetch takes cycle 0, the access takes the next cycle nobody else wants, usually within the slot, and on screens within the budget by the next cycle 0: 2 wait states at most (spec 5, section 6). While a nasty copper or a HIGH DMA engine job owns cycle 0, or with a slot plan that gives cycle 0 to another requester, the access waits for a cycle they leave: a long HIGH job can hold the CPU off for as long as it runs. /DTACK and the data simply come later. A posted write that loses its cycle 0 waits in the same way; the next bus cycle waits for it |
+| Chip RAM | 0 normally. When an urgent display fetch takes cycle 0, the access takes the next cycle nobody else wants, usually within the slot, and on screens within the budget by the next cycle 0: 2 wait states at most (spec 5, section 6). While a nasty copper owns cycle 0, or with a slot plan that gives cycle 0 to another requester, the access waits for a cycle they leave. /DTACK and the data simply come later. A posted write that loses its cycle 0 waits in the same way; the next bus cycle waits for it |
 | Boot ROM, block RAM areas, custom registers, system registers | 0 |
 | Interrupt acknowledge | 0 |
 
@@ -171,7 +171,7 @@ Added to the system control registers (spec 7, section 9):
 
 - **Clock crossing:** in simulation and in a Vivado timing report, every 40 ↔ 100 MHz path meets 15 ns, and captures happen only on the edges in section 3.
 - **Bus cycles:** reads and writes of bytes and words to every target, with the timing of section 4.1; zero wait states except where section 4.2 says.
-- **Wait states:** with all DMA busy (display, audio, copper and the DMA engine), Chip RAM accesses still have no waits.
+- **Wait states:** with all DMA busy (display, audio, copper and the blitter), Chip RAM accesses still have no waits.
 - **Bus errors:** each cause raises vector 2 and records BUSERRADDR and BUSERRWHY; PROTECT blocks user mode only.
 - **Interrupt acknowledge:** each level returns the right vector with no wait.
 - **Reset and halt:** reset at every source; the RESET instruction resets the devices only; a double bus fault sets HALTED and, with HALTRESET, resets with RESETWHY.HALTED.

@@ -1,86 +1,102 @@
-# Spec 11: DMA engine and blitter
+# Spec 11: Blitter
 
-Status: **version 1, for review**; BLIT replaced COPY, FILL, KEYCOPY and LOGIC on 29 October 2026 (shared with retro-z80)
+Status: **version 2, for review**. Rebuilt on 10 November 2026 on retro-hw's redesigned blitter core (`fpga/retro-hw/docs/spec/blitter.md`, revision 2; retro-hw PR #14), shared with retro-z80.
 
-One engine moves data for the CPU: copying and filling memory, feeding peripherals, writing hardware registers, and drawing graphics (the blitter). The CPU describes jobs in memory, starts a channel, and carries on with other work while the engine runs them.
+The blitter works on rectangles of pixels in Chip RAM: it copies, fills, combines and cuts out, while the CPU carries on with other work. Each destination pixel is a logic function (the minterm) of a mask A, a source B and the destination's old contents C, as in the Amiga's blitter. A job can name a next job, so a list of jobs runs with no CPU in between.
+
+**What changed from version 1, and why.** Version 1 was a 4-channel DMA engine: BLIT and ADD jobs, peripheral ports (the SD card, the serial link), the custom registers, palettes and boot ROM as job memory, a 2 KB descriptor RAM, a HIGH bit to take the CPU's memory cycles, PAUSE, timer starts and an address range check. Its shared core tried to do too much (retro-hw's own words) and was about 2,750 LUTs here; the redesign is about 1,060 (Vivado, the core alone). It became three cores: this one for rectangles; `raster` for lines and triangles; `geom` for 3D points. This spec follows the new blitter core:
+
+| Version 1 | Now |
+|-----------|-----|
+| 4 channels taking turns | One job at a time, with chains |
+| ADD | Gone |
+| Port jobs: the SD card (port 0), the serial link (port 1) | Gone. The CPU moves those bytes (specs 14 and 15); SDCOUNT is gone. A FIFO mover may come back later (open point D4) |
+| The custom block (registers, palettes, descriptor RAM) and the boot ROM as job memory | Gone: a job reaches Chip RAM only. The copper or the CPU loads registers and palettes. The descriptor RAM at `0xE06000` is gone |
+| HIGH (a job taking the CPU's cycle 0) | Gone. The slot plan (MEMSLOT0–4) can still give the blitter any cycle |
+| PAUSE; timers starting channels (TMRn CTRL.DMA, DMACH) | Gone. DMACON.BLTEN holds the blitter |
+| The address range check, CHERR | Gone: an address past the memory wraps. Software keeps jobs in bounds |
+| DESC (a whole job backwards) | RTL (each row right to left); rows bottom-up by negative strides |
+| A and B shared a stride | A has its own (ASTRIDE): old open point D6 is closed |
+| VALUE 32 bits, also the key colour | VALUE 16 bits (one memory word of pixels); KEY is its own field |
+| A destination word left unchanged was not written | Every destination word of the row is written; C is read first when the minterm needs it |
+| LINE planned as an OP of this engine | Lines and triangles are the `raster` core's, with its own registers, in the next change (open point D3) |
+
+The job registers keep their version 1 places where the field still exists. Software written for version 1 needs porting: the CTRL bits, VALUE and the control registers differ.
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
-| Channels | 4, running at the same time and taking turns, a group of memory cycles each |
-| Programming | A job written straight into a channel's registers, or chains of 32-byte **descriptors** (job descriptions, laid out as those registers) in Chip RAM or in a 2 KB descriptor RAM inside the FPGA |
-| Jobs | **BLIT**, as the Amiga's blitter: each pixel any logic function (minterm) of a mask A, an image B and the destination's old contents C; copies, fills, cookie-cut drawing with a colour key or a 1 bpp mask, and logic all come from it. **ADD** per pixel. In 1D (linear) or 2D (rectangles with a stride). MIX (audio voices) is on hold |
+| Jobs | One at a time. A job may chain to a next descriptor |
+| Programming | A job written straight into the job registers, or chains of 32-byte **descriptors** (laid out as those registers) in Chip RAM |
+| Operation | D = minterm(A, B, C), any of the 256, per bit |
 | Pixel formats | 1, 2, 4 or 8 bits per pixel, positioned to the pixel: chunky layers directly, planar layers one plane at a time (section 6.1) |
-| Sources and destinations | Chip RAM, the custom registers and palettes, the descriptor RAM, the boot ROM (read only), or a peripheral port (USB serial; the SD card later) |
-| Memory cycles | Normally only free ones, so the CPU is never slowed. A **HIGH** bit per job lets it take the CPU's cycles, like the Amiga's "blitter nasty" |
-| Speed at 576p | Copy about 25–38 MB/s, fill 50–77 MB/s, depending on the screen and how busy the CPU is (section 7). A 68000 at 20 MHz copies about 4 MB/s |
-| Finishing | An interrupt per descriptor if asked, status flags per channel |
+| A (the mask) | None (all ones), a 1 bpp image, or B compared with a key colour |
+| B (the source) | Chip RAM, or a constant word (a fill) |
+| Direction | Left to right, or right to left (RTL) for overlapping copies; rows in either order, by the sign of the strides |
+| Clipping | None: software trims the rectangle (section 3.5) |
+| Memory | Chip RAM only. Normally only free memory cycles, so the CPU is never slowed |
+| Speed | Measured in simulation (section 8): a fill 25 MB/s, a copy 17 MB/s, a cookie-cut 12 MB/s. A 68000 at 20 MHz copies about 4 MB/s |
+| Finishing | A flag and an interrupt at the end of a chain, and after any job that asks; BUSY and ERR to poll |
 
 ## 2. Comparison with the Amiga
 
-| Feature | Amiga blitter | retro68k DMA engine |
-|---------|---------------|---------------------|
-| Jobs at once | 1 | 4 channels |
-| Starting jobs | CPU or copper writes registers, then waits for the blitter to finish before the next job | The same (a channel's job registers), or a chain of jobs the engine works through alone |
+| Feature | Amiga blitter | retro68k blitter |
+|---------|---------------|------------------|
+| Jobs at once | 1 | 1 |
+| Starting jobs | CPU or copper writes registers, then waits for the blitter to finish before the next job | The same (the job registers), or a chain of jobs the blitter works through alone |
 | Pixel layout | Bitplanes: one blit per plane, with shifts and masks | Chunky pixels at any depth: one blit for all colour depths. Planar layers: one blit per plane, as on the Amiga (section 6.1) |
-| Masked (cookie-cut) drawing | Uses a separate mask plane and the minterm logic | The same minterms and a 1 bpp mask, at any colour depth; or a colour-key compare, which needs no mask in memory |
-| Logic | Any function of 3 sources (minterms) | The same: the minterm, in the Amiga's numbering, of the mask A, the image B and the destination C |
-| Arithmetic | None | ADD per pixel, wrapping or saturating, signed or unsigned |
+| Masked (cookie-cut) drawing | A separate mask plane and the minterm logic | The same minterms and a 1 bpp mask, at any colour depth; or a colour-key compare, which needs no mask in memory |
+| Logic | Any function of 3 sources (minterms) | The same: the minterm, in the Amiga's numbering, of the mask A, the source B and the destination C |
 | Edge masks | First-word and last-word mask registers | Automatic, from the starting pixel and the width |
-| Register writes | Copper only | Copper, and DMA jobs: block copies and fills into registers |
-| Peripherals | Separate disk DMA | The same engine, through peripheral ports |
-| Priority | BLTPRI ("blitter nasty") for all blits | HIGH bit per job |
-| Line drawing, area fill | Yes | Not in version 1 (open point D3) |
+| Overlapping copies | Descending mode | RTL for rows, negative strides for bottom-up |
+| Priority | BLTPRI ("blitter nasty") for all blits | The slot plan (spec 5, section 8.1) |
+| Line drawing, area fill | Yes | Not here: the `raster` core, next (open point D3) |
 
-## 3. Descriptors
+## 3. The job
 
-A job is described by eight long words: a channel's job registers (section 8), or a 32-byte descriptor in memory, long-word aligned, which the channel loads into them. Each job can point to the next descriptor, so a chain of jobs runs without the CPU.
+A job is eight long words: the job registers, or a 32-byte descriptor in Chip RAM at an even address, which the blitter loads into them. Offsets are in the custom block (`0xE00000`, spec 3, section 3.5) for the registers, and from the descriptor's start in memory. A descriptor is stored as the registers are: big-endian long words.
 
-The jobs are shared with retro-z80's DMA engine (its spec 14): the same operations, minterm numbering and mask modes, so a blit means the same on both machines. retro68k keeps its own long-word layout, its HIGH mode, and its custom block, boot ROM and port targets.
+| Register | Descriptor | Name | Bits | Meaning |
+|----------|------------|------|------|---------|
+| `0x300` | `+0x00` | BLTCTRL | see below | Options, KEY and MINTERM |
+| `0x304` | `+0x04` | BLTBPT | ADDR 23–0, BIT 26–24 | The source B: the byte holding the first row's first pixel (with RTL, its last pixel: the first one worked on). BIT (BBIT): that pixel's place in its byte, in pixels from the most significant end (0–7 at 1 bpp, 0–3 at 2, 0–1 at 4, 0 at 8) |
+| `0x308` | `+0x08` | BLTDPT | ADDR 23–0, BIT 26–24 | The destination D, which is also where C is read. As BLTBPT (DBIT) |
+| `0x30C` | `+0x0C` | BLTSIZE | WIDTH 15–0, HEIGHT 31–16 | Pixels per row, and rows. Either 0 is an empty job |
+| `0x310` | `+0x10` | BLTAPT | ADDR 23–0, BIT 26–24 | The mask image A (MASK = 1), 1 bpp: the byte holding the first row's first mask bit (with RTL, its last). BIT (ABIT): that bit, from the most significant end (0–7) |
+| `0x314` | `+0x14` | BLTSTRIDE | BSTRIDE 31–16, DSTRIDE 15–0, both signed | Bytes from one row's start to the next, for B and for D |
+| `0x318` | `+0x18` | BLTVALUE | ASTRIDE 31–16 (signed), VALUE 15–0 | ASTRIDE: the same for A. VALUE: the constant B (BCONST): one memory word of pixels (section 3.2) |
+| `0x31C` | `+0x1C` | BLTNEXT | ADDR 23–0 | The next descriptor's address; 0 for none |
 
-| Offset | Name | Bits | Meaning |
-|--------|------|------|---------|
-| `+0x00` | CTRL | see below | Operation, options and MINTERM |
-| `+0x04` | BPT | ADDR 23–0, BIT 26–24 | The image B: address (section 4) of the first pixel, or port number. BIT (BBIT): the first pixel's position within its byte, in pixels from the most significant end, at 1, 2 and 4 bpp (0–7, 0–3, 0–1); 0 at 8 bpp |
-| `+0x08` | DPT | ADDR 23–0, BIT 26–24 | The destination D, which is also where C is read: address of the first pixel, or port number. BIT (DBIT) as BPT's |
-| `+0x0C` | SIZE | WIDTH 15–0, HEIGHT 31–16 | Pixels per row (bytes when BPP = 8), and rows (1 for a linear job) |
-| `+0x10` | APT | ADDR 23–0, BIT 26–24 | The mask A, a 1 bpp image (MASK = 1): address of the first byte. BIT (ABIT): the first pixel's bit, from the most significant end (0–7) |
-| `+0x14` | STRIDE | ABSTRIDE 31–16, CDSTRIDE 15–0, both signed | Bytes from the start of one row to the start of the next: of A and B (shared), and of C and D |
-| `+0x18` | VALUE | 31–0 | B's constant when BKIND = VALUE (a fill), and the key colour for a compare mask (MASK = 2) |
-| `+0x1C` | NEXT | 23–0 | Address of the next descriptor; 0 = end of chain |
-
-A WIDTH or HEIGHT of 0 makes the job do nothing; the chain carries on with NEXT. Bits not listed are reserved: write 0.
-
-**CTRL bits:**
+**BLTCTRL bits:**
 
 | Bits | Name | Meaning |
 |------|------|---------|
-| 2–0 | OP | 0 BLIT, 1 ADD, 2–4 reserved, 5 MIX (on hold), 6 span fill and 7 triangle (reserved for 3D, open point D5). All but 0 and 1 are an error in version 1 |
-| 4 | SAT | ADD: saturate instead of wrapping |
-| 5 | SIGNED | ADD: pixels are two's complement |
+| 7–0 | KEY | The key colour for MASK = 2, in its low bits (as many as the pixel has) |
 | 9–8 | BPP | 0 = 1, 1 = 2, 2 = 4, 3 = 8 bits per pixel |
-| 10 | DESC | Run backwards: from the last pixel of the last row to the first pixel of the first row, for overlapping copies where the destination is after the source. The addresses still give the first pixel |
-| 11 | HIGH | May take the CPU's memory cycles (section 5) |
-| 12 | IRQ | Raise the channel's interrupt when this descriptor finishes |
-| 14–13 | BKIND | Where B comes from: 0 = memory, 1 = port, 2 = reserved (an error), 3 = VALUE (a constant: a fill) |
-| 16–15 | DKIND | Where D goes: 0 = memory, 1 = port; 2 and 3 reserved (an error) |
-| 18–17 | MASK | Where A comes from: 0 none (every pixel 1), 1 the 1 bpp image at APT, 2 a compare of B with the key colour, 3 reserved (an error) |
-| 31–24 | MINTERM | BLIT's logic function of A, B and C (section 3.1) |
+| 10 | RTL | Work each row right to left (section 3.4) |
+| 12 | IRQ | Set DMXINT.BLT when this job ends (section 7) |
+| 13 | BCONST | B is VALUE, not memory (a fill) |
+| 18–17 | MASK | Where A comes from: 0 none (every pixel 1), 1 the 1 bpp image at BLTAPT, 2 a compare of B with KEY (A is 1 where B differs), 3 an error |
+| 31–24 | MINTERM | The logic function of A, B and C (section 3.1) |
 
-### 3.1 BLIT
+Bits not listed are reserved: write 0. The blitter ignores them (they read back as written).
 
-For each pixel of the job, BLIT works out D from three inputs, bit by bit, as the Amiga's blitter does:
+Address bits 23–22 are ignored: a job reaches Chip RAM only (section 4).
 
-- **A, the mask.** One bit per pixel, widened to all of the pixel's bits. From the 1 bpp image at APT (MASK = 1), bits from the most significant end of each byte; or 1 where B's pixel differs from the key colour, VALUE's low BPP bits, and 0 where it matches (MASK = 2); or 1 everywhere (MASK = 0).
-- **B, the image.** Read from BPT, or VALUE when BKIND = VALUE (as for a fill, below).
-- **C, the background:** the destination's old contents, read from DPT.
+### 3.1 The minterm
+
+For each pixel of the job, the blitter works out D from three inputs, bit by bit, as the Amiga's blitter does:
+
+- **A, the mask.** One bit per pixel, used for every bit of the pixel.
+- **B, the source.** Read from BLTBPT, or VALUE with BCONST.
+- **C, the background:** the destination's old contents, read from BLTDPT.
 
 Each bit of D is MINTERM's bit number A × 4 + B × 2 + C, as the Amiga's minterm (LF7–LF0). So A = `0xF0`, B = `0xCC` and C = `0xAA`, and any expression of them gives its minterm (for example A ? B : C is (`0xF0` AND `0xCC`) OR (NOT `0xF0` AND `0xAA`) = `0xCA`):
 
 | MINTERM | D = | Use |
 |---------|-----|-----|
-| `0xCC` | B | Copy; with BKIND = VALUE, fill |
+| `0xCC` | B | Copy; with BCONST, fill |
 | `0xCA` | A ? B : C | Cookie-cut: draw B where the mask is 1, leave the background where it is 0 |
 | `0xEE` | B OR C | Set bits |
 | `0x88` | B AND C | Keep only the bits B has |
@@ -90,238 +106,226 @@ Each bit of D is MINTERM's bit number A × 4 + B × 2 + C, as the Amiga's minter
 | `0x00`, `0xFF` | 0, all ones | Clear or set an area |
 | `0x0A` | A ? 0 : C | Clear through the mask (a shape's hole) |
 
-**Reads are only made when needed:**
+With MASK = 0, A is 1 everywhere, so only MINTERM's high four bits matter.
 
-- A is read only with MASK = 1. A compare mask costs no memory cycles.
-- B is read unless BKIND = VALUE.
-- C is read when D depends on it: when MINTERM's high four bits (A = 1) depend on C, or, with a mask, its low four bits (A = 0) do, except when they are `0xA` at 8 bpp (next point). C is also read for bytes the job covers only in part, at 1, 2 and 4 bpp.
-- **Where A is 0 and MINTERM leaves C alone** (its low four bits are `0xA`, as in cookie-cut), D keeps its old pixel. At 8 bpp the byte is simply not written, so C is not needed for it. So at 8 bpp a cookie-cut with a compare mask costs the same as a copy. At 1, 2 and 4 bpp other pixels share the byte, so C is read.
+**The version 1 operations as jobs:**
 
-**The old operations as BLITs** (version 1 before the change; the same table is in retro-z80's spec):
+| Old job | Now |
+|---------|-----|
+| COPY | MINTERM `0xCC` |
+| FILL | MINTERM `0xCC`, BCONST, VALUE the colour in every pixel of a word |
+| KEYCOPY | MINTERM `0xCA`, MASK = 2, KEY the transparent colour |
+| LOGIC with FN | MINTERM `FN × 0x11` |
+| ADD | None: the CPU does it |
 
-| Old job | CTRL | MINTERM |
-|---------|------|---------|
-| COPY | BPP | `0xCC` |
-| FILL | BPP, BKIND = VALUE | `0xCC` |
-| KEYCOPY (key in VALUE) | BPP, MASK = 2 | `0xCA` |
-| LOGIC with FN (bit src × 2 + dst) | BPP | FN's 4 bits twice: `FN × 0x11` |
-| LOGIC with VALUE as the source | BPP, BKIND = VALUE | `FN × 0x11` |
+### 3.2 The mask and the constant
 
-**A constant B** (BKIND = VALUE, for BLIT and ADD alike): at 8 bpp it repeats all four bytes of VALUE, by address: the byte at address a gets VALUE's byte a mod 4, most significant first. So a fill that starts on a long word writes VALUE exactly (into memory or registers), and a fill of single bytes repeats VALUE's low byte if all four bytes are the same. At 1, 2 and 4 bpp every pixel gets VALUE's low BPP bits. (retro-z80's VALUE is least significant first, as its memory is little-endian.)
+- **MASK = 1, the image.** A's bits are packed from the most significant end of each byte, one a pixel, whatever BPP is. So a mask's rows are shorter than an 8 bpp source's: A has its own stride (ASTRIDE).
+- **MASK = 2, the key.** A is 1 where B's pixel differs from KEY's low bits and 0 where it matches. It costs no memory. With BCONST it compares VALUE's pixels.
+- **VALUE, the constant B.** VALUE lies over every memory word of the destination (the two bytes at an even address, the even byte in bits 15–8): a pixel takes VALUE's bits at its own place in its word. So a plain colour is the pixel value repeated to fill 16 bits (`0x5555` for colour 1 at 2 bpp, `0x0707` for colour 7 at 8 bpp), and a pattern in VALUE lines up with memory words, not with the rectangle's left edge.
 
-### 3.2 ADD
+### 3.3 The exact result
 
-- D = C + B, each pixel added separately, at the job's colour depth (1, 2, 4 or 8 bits). Carries never spill into the next pixel. MINTERM is ignored.
-- **Wrap** (SAT = 0): the result wraps round, e.g. 250 + 10 = 4 at 8 bpp.
-- **Saturate** (SAT = 1): the result sticks at the limit instead. Unsigned (SIGNED = 0): 0 to the top value, e.g. 250 + 10 = 255. Signed (SIGNED = 1): pixels are two's complement, e.g. −128 to +127 at 8 bpp.
-- B can be memory or VALUE. The mask works as for BLIT: where A is 0, D keeps C.
-- Uses:
-  - Shading and lighting with palettes laid out as ramps: add a constant to darken or brighten an area, or add a light map image.
-  - Moving an area to another palette block by adding 16, 32 and so on.
-  - Additive effects such as glows and explosions.
-  - Mixing 8-bit signed audio samples with signed saturation (linear job, BPP = 8).
-- To subtract, add the two's complement, e.g. add 0xFF to subtract 1 at 8 bpp with wrap.
+This is the definition the test model (`sim/dtest/dmodel.py`) follows. A bit position n means bit 7 − (n mod 8) of the byte at address n div 8, so positions run left to right through a row. Byte addresses are taken modulo 4 MB.
 
-### 3.3 Shapes of jobs
+```
+bits = 1 << BPP
+for r = 0 .. HEIGHT − 1:                                  # rows in the order given
+    pd = 8 × (BLTDPT.ADDR + r × DSTRIDE) + DBIT × bits
+    pb = 8 × (BLTBPT.ADDR + r × BSTRIDE) + BBIT × bits
+    pa = 8 × (BLTAPT.ADDR + r × ASTRIDE) + ABIT
+    for i = 0 .. WIDTH − 1:                               # pixels in the order worked
+        k = −i if RTL else i
+        C = the pixel at bit position pd + k × bits       # bits wide
+        B = VALUE's bits at (pd + k × bits) mod 16        if BCONST (bit 15 is place 0)
+            the pixel at bit position pb + k × bits       otherwise
+        A = 1                                             if MASK = 0
+            the bit at bit position pa + k                if MASK = 1
+            1 if B ≠ KEY's low bits, else 0               if MASK = 2
+        for each bit j of the pixel:
+            D[j] = MINTERM[4 × A + 2 × B[j] + C[j]]
+        the pixel at pd + k × bits becomes D
+```
 
-**Linear jobs** (memcpy, memset, port transfers): BPP = 8, HEIGHT = 1, WIDTH = length in bytes, up to 65,535. A longer memory copy is a 2D job with equal widths and strides (for example WIDTH = STRIDE = 16 KB, HEIGHT = the number of 16 KB blocks), or a chain; a longer port transfer is a chain.
+- **What is written.** Only bytes that hold at least one pixel of a row are written. In such a byte, pixels outside the row keep their value.
+- **Nothing else changes.** No word outside the destination rows is written, and A and B are never written.
+- **Overlap.** The result above is what the blitter gives whenever no memory word is written before it is read as A or B for a later pixel (section 3.4). With an overlap worked the wrong way the result is not specified.
 
-**2D jobs** (blits): WIDTH × HEIGHT pixels, with each row starting a stride after the last. B and D have their own strides, so an image can be copied out of a sprite sheet into a screen. A stride of 0 repeats the same row; a negative stride runs up the screen (an image drawn upside down).
+### 3.4 Direction
 
-**The mask shares B's stride** (ABSTRIDE). A 1 bpp mask has 8 pixels a byte, so at 2, 4 and 8 bpp its rows are shorter than B's, and each is padded to B's stride. For a sheet of 8 bpp sprites, keep the masks in a sheet of their own with the same row length, or use a compare mask, which needs no memory at all.
+A copy whose source and destination overlap must not overwrite source pixels it has yet to read.
 
-**Clipping is done by software, with no extra hardware.** To draw only part of an image (for example an object partly off the screen), trim the job before starting it, keeping the strides the same:
+- **Rows.** The blitter always goes from the row the pointers name to the next by adding the strides. To work from the bottom row up, give the bottom row's addresses and negative strides.
+- **Within a row.** With RTL the blitter works each row from its last pixel to its first: the pointers and their BIT fields name the row's last pixel, and words are taken in falling address order.
 
-- **Left edge:** skip k pixels: move BPT and DPT on by k pixels (bytes, plus BBIT and DBIT at 1, 2 and 4 bpp), APT by k bits (bytes plus ABIT), and subtract k from WIDTH.
+| Destination is | Use |
+|----------------|-----|
+| To the left of the source, or above it | The job as it is |
+| To the right, in the same rows | RTL |
+| Below | Rows bottom-up (negative strides) |
+
+The result is the same in either direction when source and destination don't overlap. A stride of 0 repeats the same row.
+
+### 3.5 Shapes of jobs
+
+**Linear jobs** (memcpy, memset): BPP = 8, HEIGHT = 1, WIDTH = the length in bytes, up to 65,535. A longer one is a job with equal widths and strides (for example WIDTH = BSTRIDE = DSTRIDE = 16 KB, HEIGHT = the number of 16 KB blocks), or a chain.
+
+**Rectangles** (blits): WIDTH × HEIGHT pixels, with each row starting a stride after the last. A, B and D have their own strides, so an image can be copied out of a sprite sheet into a screen, through a 1 bpp mask sheet with shorter rows.
+
+**Clipping is done by software.** To draw only part of an image (an object partly off the screen), trim the job before starting it, keeping the strides the same:
+
+- **Left edge:** skip k pixels: move BLTBPT and BLTDPT on by k pixels (bytes, plus BBIT and DBIT below 8 bpp), BLTAPT by k bits (bytes plus ABIT), and subtract k from WIDTH.
 - **Right edge:** subtract the pixels past the edge from WIDTH.
-- **Top edge:** skip r rows: add r × ABSTRIDE to APT and BPT and r × CDSTRIDE to DPT, and subtract r from HEIGHT.
+- **Top edge:** skip r rows: add r × ASTRIDE to BLTAPT, r × BSTRIDE to BLTBPT and r × DSTRIDE to BLTDPT, and subtract r from HEIGHT.
 - **Bottom edge:** subtract the rows past the edge from HEIGHT.
 - If WIDTH or HEIGHT reaches 0, the object is fully off the screen: the job does nothing.
 
-Because the stride is separate from the width, the trimmed rows still line up with the image and the screen.
+With RTL, or rows bottom-up, the pointers name the other end, and the same trims apply from that end.
 
-**Which kinds go together:** B from memory or VALUE, D to memory, with any OP, MINTERM and MASK. (A compare mask with a constant B is allowed; it compares VALUE's bytes with the key, as for an image.) A **port job** is a plain copy (BLIT, MINTERM `0xCC`, MASK = 0) between a port and memory, a byte at a time: linear, BPP = 8, HEIGHT = 1, no DESC, BKIND or DKIND a port but not both, and its memory side not registers. Any other combination stops the channel with an error.
+### 3.6 Worked examples
 
-### 3.4 MIX: one audio voice
+A 320-pixel-wide, 8 bpp bitmap at `0x10000` (stride 320) in each case. CTRL is BLTCTRL; `0x300` is BPP = 3.
 
-> **On hold.** Stepping through a sample and taking the nearest value sounds poor when mixing at a fixed rate (a metallic buzz when pitched down, off-key aliasing when pitched up). MIX needs proper resampling, for example 8-tap windowed-sinc interpolation with pre-filtered octave copies, before it is worth building; and the audio unit (spec 6) now plays four channels with interpolation by itself. OP 5 stops the channel with an error in version 1. The previous design is kept in the history of this file.
+| Job | Registers |
+|-----|-----------|
+| Fill the 32 × 16 rectangle at (40, 20) with colour 7 | CTRL `0xCC002300` (MINTERM `0xCC`, BCONST), VALUE `0x0707`, WIDTH 32, HEIGHT 16, DPT `0x10000` + 20 × 320 + 40, DSTRIDE 320 |
+| Copy a 32 × 32 image at `0x20000` (stride 32) to (100, 50) | CTRL `0xCC000300`, BPT `0x20000`, BSTRIDE 32, DPT `0x10000` + 50 × 320 + 100, DSTRIDE 320, WIDTH 32, HEIGHT 32 |
+| The same, with colour 0 transparent | As the copy, with CTRL `0xCA040300` (MINTERM `0xCA`, MASK = 2, KEY 0) |
+| An 8 × 8 character from a 1 bpp font at `0x30000` (one byte a row) in colour 15 at (8, 8) | CTRL `0xCA022300` (MINTERM `0xCA`, MASK = 1, BCONST), APT `0x30000` + 8 × character, ASTRIDE 1, VALUE `0x0F0F`, DPT `0x10000` + 8 × 320 + 8, DSTRIDE 320, WIDTH 8, HEIGHT 8 |
+| Scroll the whole 320 × 200 picture down 8 rows | A copy with the rows bottom-up: BPT `0x10000` + 191 × 320, DPT `0x10000` + 199 × 320, BSTRIDE −320, DSTRIDE −320, WIDTH 320, HEIGHT 192 |
+| Scroll it right 4 pixels | A copy right to left: CTRL `0xCC000700` (RTL), BPT `0x10000` + 315 (the last source pixel of row 0), DPT `0x10000` + 319, strides 320, WIDTH 316, HEIGHT 200 |
 
-## 4. Where data can come from and go to
+## 4. What a job can reach
 
-**DMA addresses are CPU addresses** (24-bit). A job sees memory as the CPU does:
+**Chip RAM only.** The pointers and BLTNEXT are CPU addresses, but only their low 22 bits are used: there is no range check, and an address past 4 MB wraps round into Chip RAM. Software keeps jobs in bounds. A descriptor's address also loses its bit 0, so BLTNEXT ends a chain when its bits 21–1 are 0.
 
-| Address | Area | Read | Write | Uses Chip RAM cycles? |
-|---------|------|------|-------|-----------------------|
-| `0x000000`–`0x3FFFFF` | **Chip RAM** (4 MB; 2 MB boards: `0x000000`–`0x1FFFFF`) | Yes | Yes | Yes |
-| `0xE00000`–`0xE0FFFF` | Custom registers (video, sprites, audio, DMA engine, copper), the palettes at `0xE04000` and the descriptor RAM at `0xE06000` | Yes | Yes | No |
-| `0xF80000`–`0xF87FFF` | Boot ROM | Yes | No | No |
+The custom registers, the palettes, the boot ROM and the system block cannot be a job's source or destination (in version 1 the first three could). Registers and palettes are loaded by the copper (spec 10) or the CPU. The descriptor RAM is gone: descriptors live in Chip RAM.
 
-Anything else, including Chip RAM past the end on a 2 MB board and the system area at `0xF00000` (interrupt controller, timers, serial, SD card), stops the channel with an error. The system area is left out so a runaway job cannot disturb interrupts or the serial console; its devices are reached through ports instead.
+## 5. Memory cycles
 
-**The custom block** (registers, palettes, descriptor RAM) is reached a 16-bit word at a time, as memory: any operation can use it, at any alignment. Each word written is a write of that register half (with byte selects for single bytes), exactly as a CPU or copper write of the same half (spec 3, section 2), including its timing rules (for example, layer settings for line n must be written before line n starts, spec 4, section 5.4):
+The blitter is requester 5 (BLT) of the memory scheduler (spec 5, section 6): in the spare-cycle order after the display, audio, the copper and the CPU, ahead of the DMA port.
 
-- A copy (MINTERM `0xCC`) from memory into a block of registers sets up a whole layer, or several, in one job; a copy into another channel's CHCTRL starts that channel, just as a CPU write does, so one chain can start others. A copy can also read registers into memory, for example to save a screen setup or keep a log of beam positions (a 32-bit register is read as two halves, which can come from different moments if it is changing).
-- Palette entries keep their halves rule: the engine's high-half write is held until its low-half write to the same entry. So a job writing palette entries must run forwards (DESC clear), and cover whole entries.
-- Reading a register never changes anything, by design, so a DMA read is always safe. Sticky flags are cleared only by writing 1.
-- Each word takes one 100 MHz clock on the FPGA's internal register bus. The CPU goes first, then the copper, then the engine: a job waits a clock when either is using the bus. The boot ROM is read through a port of its own.
-
-**Ports:**
-
-| Port | Device |
-|------|--------|
-| 0 | The SD card (spec 15): a source reads the run of bytes SDCOUNT asked for, a destination sends bytes to the card; paced by the SPI clock |
-| 1 | USB serial FIFOs (spec 14), paced by the link: a source reads the receive FIFO, a destination writes the transmit FIFO |
-| 2–7 | Reserved |
-
-When a port isn't ready, that channel waits and the other channels keep running. Port addresses don't move on.
-
-## 5. Memory cycles and priority
-
-The engine is requester 5 (BLT) of the memory scheduler (spec 5, section 6): in the spare-cycle order after the display, audio, the copper and the CPU, ahead of the DMA port.
-
-- **One memory cycle** (20 ns) reads or writes 2 bytes at any even address, with byte selects for single bytes (spec 5, section 4.2). A copy costs 2 cycles per 2 bytes (one read, one write); a fill costs 1; a job that reads the destination costs 3.
-- **Normal jobs** use cycles nobody else wants: cycle 4, cycle 2 when audio isn't using it, display cycles (1 and 3) no layer or sprite needs (all of them in the vertical blank), and cycle 0 whenever the CPU isn't using it. **The CPU is never slowed** (with the default slot plan, spec 5, section 8.1).
-- **HIGH jobs** (CTRL.HIGH) own the CPU's cycle 0 while they ask, and go first for every cycle its owners leave, ahead of the CPU, the copper at PRI 0, audio and the display's fetches that are not urgent. The display keeps its own cycles 1 and 3 and its urgent fetches, and audio its cycle 2. **The CPU gets only the cycles a HIGH job leaves, so a long HIGH job can hold the CPU off, interrupts included, for as long as it runs**; with one channel running, the engine leaves about 1 cycle in 10 (between its groups of 8 words), which the CPU then takes. There is no CPU share: use HIGH when the CPU would only be waiting for the job anyway, and keep HIGH jobs short when interrupts must be served quickly.
-- **The slot plan** (MEMSLOT0–4, spec 5, section 8.1) can also make the engine the owner of cycles, for every job: `0x20` in MEMSLOT0 gives it cycle 0 in place of the CPU.
-- **Between channels:** channels with work to do take turns, a group of up to 8 destination words (or 8 bytes of a port job) each, so a long blit can't hold up a peripheral transfer for more than a fraction of a microsecond. A channel waiting for its port gives up its turn.
-- **Descriptors** in Chip RAM take 16 read cycles (32 bytes) to load. Descriptors in the descriptor RAM take none, which suits short, frequent jobs.
+- **One memory cycle** (20 ns) reads or writes 2 bytes at an even address, with byte selects for single bytes (spec 5, section 4.2).
+- **The blitter uses cycles nobody else wants**: cycle 4, cycle 2 when audio isn't using it, display cycles (1 and 3) no layer or sprite needs, and cycle 0 whenever the CPU isn't using it. **The CPU is never slowed** (with the default slot plan, spec 5, section 8.1).
+- **The slot plan** (MEMSLOT0–4) can make the blitter the owner of cycles: `0x20` in MEMSLOT0 gives it cycle 0 in place of the CPU, which then gets spare cycles only.
+- **A descriptor** takes 16 read cycles (32 bytes) to load.
 
 ## 6. How a blit works
 
-The engine works through each row in groups of up to 8 words (16 bytes). Each group goes through the same five steps:
+The blitter works through each row a destination word (16 bits at an even address) at a time. Each word takes these memory accesses, in this order:
 
-1. **Read:** up to 16 bytes of B into the engine's buffer, one word per memory cycle; the matching words of the mask image A (MASK = 1); and the matching words of C when they are needed (section 3.1).
-2. **Shift:** B is shifted into line with D when they start at different pixels within a word (by bytes and pixels); A is lined up with D's pixels and each of its bits widened to the pixel depth. Bits carry from one word into the next, as in the Amiga's barrel shifter.
-3. **Mask:** A from the mask image, from comparing each pixel of B with the key colour, or all ones.
-4. **Combine:** the minterm, bit by bit (BLIT), or the per-pixel add (ADD), with the mask.
-5. **Write:** one word per memory cycle, using the SRAM's byte selects to leave an untouched byte alone.
+| Access | When |
+|--------|------|
+| Read B | B is memory, and MINTERM depends on B or MASK = 2. One word for each 16 source bits used: sometimes two for the row's first word, none for a word the last read still covers |
+| Read A | MASK = 1 and MINTERM depends on A: one word for every 16 pixels |
+| Read C | MINTERM depends on C, or the word is the row's first or last and a byte of it is only partly inside the row |
+| Write D | Always, with the byte selects off for bytes wholly outside the row |
 
-**Edge masks are automatic.** The engine works out which pixels of the first and last bytes of each row belong to the job from DBIT and WIDTH. There are no mask registers to set, unlike the Amiga's first-word and last-word masks.
+So a fill is one access a word, a copy two, and a cookie-cut with a key colour three.
 
-**Read-modify-write:** the SRAM can only skip whole bytes when writing. When a write would change only some pixels in a byte, the engine reads the destination, merges, and writes it back. This happens:
+"Depends on" is read from MINTERM alone: it depends on C when bits 7, 5, 3, 1 differ from bits 6, 4, 2, 0; on B when bits 7, 6, 3, 2 differ from 5, 4, 1, 0; on A when bits 7–4 differ from bits 3–0. With MASK = 0 only bits 7–4 count.
 
-- at the row edges of 1, 2 and 4 bpp jobs that don't start or end on a byte,
-- with a mask at 1, 2 and 4 bpp, when MINTERM keeps C where A is 0 (two or more pixels share a byte),
-- for minterms that use C (section 3.1), and for ADD.
+The datapath for a word:
 
-At 8 bpp, a copy, a fill and a cookie-cut never need it: a pixel the mask leaves alone is a byte not written. **8 bpp chunky is the fastest format for game graphics.**
+| Stage | What |
+|-------|------|
+| B | The source bits for this word, lined up to the destination by a barrel shifter over the last and the current source word (as the Amiga's); or VALUE |
+| A | The image's bits, one a pixel, widened to the pixel; or 1 where B's pixel differs from KEY; or all ones |
+| Combine | The minterm of A, B and C, bit by bit |
+| Edges | In the row's first and last words, pixels outside the row keep C |
+
+**Edge masks are automatic.** The blitter works out which pixels of the first and last words of each row belong to the job from DBIT and WIDTH. There are no mask registers to set, unlike the Amiga's first-word and last-word masks.
+
+The blitter may read one source or mask word past the row's last pixel. It never writes outside the row.
+
+**A cookie-cut reads C at every depth**, 8 bpp included: where A is 0 the old pixel is written back. (Version 1 skipped the byte at 8 bpp.) So a cookie-cut costs three accesses a word, and a plain copy two.
 
 ### 6.1 Planar layers
 
-A planar layer (spec 4, section 4.2) is several 1 bpp pictures, one per plane. The engine draws into it at BPP = 0, a plane at a time, positioned to the pixel:
+A planar layer (spec 4, section 4.2) is several 1 bpp pictures, one per plane. The blitter draws into it at BPP = 0, a plane at a time, positioned to the pixel:
 
-- **Separate planes:** one job per plane, chained, with BPT and DPT moved on by a plane each time.
+- **Separate planes:** one job per plane, chained, with BLTBPT and BLTDPT moved on by a plane each time.
 - **Interleaved planes** (each row of each plane next to the row of the next plane): one job does all the planes, if the source is interleaved the same way: HEIGHT = rows × planes, and each stride = one plane row's bytes.
-- **Transparent drawing (cookie cut)**, as on the Amiga: keep a 1 bpp mask of the object (1 where it has a pixel). For each plane, one BLIT with MINTERM `0xCA`, MASK = 1, APT the mask and BPT the object's plane: the object's bits where the mask is 1, the background's elsewhere. The same mask serves every plane. A compare mask is for chunky layers: in a planar layer, a colour is spread over the planes.
+- **Transparent drawing (cookie cut)**, as on the Amiga: keep a 1 bpp mask of the object (1 where it has a pixel). For each plane, one job with MINTERM `0xCA`, MASK = 1, BLTAPT the mask and BLTBPT the object's plane. The same mask serves every plane. A key colour is for chunky layers: in a planar layer, a colour is spread over the planes.
 
-## 7. Speed
+## 7. Control and status registers
 
-A 576p line is 32 µs: 320 slots, 1,600 memory cycles. The engine gets what the other users leave:
-
-| Cycles per line | Free for the engine |
-|-----------------|---------------------|
-| Cycle 4 | 320, less the copper's |
-| Cycle 2 | 320, less audio's (a few: 4 channels of 8-bit samples need about 2 words per line) |
-| Cycle 0 | The CPU's leftovers: at least 160 when the 68000 runs flat out from Chip RAM (a bus cycle is two slots), 320 when it runs from ROM or waits. The CPU also takes spare cycles ahead of the engine when it misses its cycle 0, so in practice it takes about one cycle in 10 wherever it falls |
-| Cycles 1 and 3 | 640 less the layers' fetches (spec 4, section 5.2), less sprites' |
-
-Some screens, before the copper and sprites take their (usually small) share:
-
-| Situation (normal job) | Free cycles per line | Copy | Fill |
-|------------------------|----------------------|------|------|
-| CPU busy, one full-screen 8 bpp chunky layer (about 370 words a line) | about 1,070 | 33 MB/s | 67 MB/s |
-| CPU busy, layers using the whole display budget (640 words a line) | about 800 | 25 MB/s | 50 MB/s |
-| CPU idle, one full-screen 8 bpp chunky layer | about 1,230 | 38 MB/s | 77 MB/s |
-| Vertical blank (49 lines a frame), CPU busy | about 1,440 | 45 MB/s | 90 MB/s |
-
-A HIGH job gets the cycles a busy CPU would use (up to 160 a line, about 5 MB/s more copy speed), and goes ahead of the display's fetches that are not urgent in the cycles their owners leave. It gains less than that: with one channel running, the engine leaves about 1 cycle in 10 between its groups, and the CPU takes those instead (in simulation, an 8 KB FILL, 4,096 writes, with the CPU reading Chip RAM took 4,617 memory cycles as a HIGH job, 485 of them idle, and 4,649 as a normal one, 517 idle). Its main effect is on the CPU, which waits for those gaps.
-
-Jobs that read the destination (a minterm that uses C, ADD) need 3 cycles per 2 bytes instead of 2, so they run at about two thirds of the copy speed. Jobs at 1, 2 or 4 bpp that are not byte-aligned add a read at each row edge.
-
-For comparison, a 68000 at 20 MHz copies about 4 MB/s (`MOVE.L (A0)+,(A1)+` or `MOVEM.L`). Clearing a full-screen 720 × 576 8 bpp picture (405 KB) takes about 6–8 ms with the engine, well within one 50 Hz frame (20 ms), with the CPU busy.
-
-These figures are worked out from the slot rules; open point D2 is to measure them in simulation. They are probably optimistic. retro-z80 measured its port of this engine on its KS2 board: fills and copies took 25–35% longer than its own estimates, turning layer DMA off sped jobs up by only 8–13%, and a job reading C cost only 5% more than a copy. So the engine does not use every free cycle it is offered, and its own pipeline, not the memory, sets the speed.
-
-## 8. Channels and registers
-
-Offsets in the custom register block at `0xE00000` (spec 3, section 3.5).
-
-**Per channel** (channel n at `0x300 + n × 0x40`). The first eight are the **job registers**, laid out exactly as a descriptor (section 3): a job can be set up by writing them directly, or loaded into them from a descriptor in memory.
+Offsets in the custom block at `0xE00000` (spec 3, section 3.5). The job registers (`0x300`–`0x31C`) are in section 3.
 
 | Offset | Name | Bits | Meaning |
 |--------|------|------|---------|
-| `+0x00`–`+0x1C` | CTRL, BPT, DPT, SIZE, APT, STRIDE, VALUE, NEXT | As in section 3 | The job to run, or running. Writes are ignored while the channel is BUSY |
-| `+0x20` | CHDESC | 23–0 | The descriptor START loads (long-word aligned). Read: the descriptor now running, or the last one loaded. Writes are ignored while the channel is BUSY |
-| `+0x24` | CHCTRL | START (0), RUN (1), STOP (2), PAUSE (3) | START (strobe): load the descriptor at CHDESC into the job registers and run it. RUN (strobe): run the job already in the job registers. Either way, at the end of the job the channel loads the descriptor at NEXT and runs it, until NEXT is 0. Both are ignored while BUSY. STOP (strobe) ends the chain after the current group of cycles. PAUSE holds it while set. (Bits 5–4 were CPUSHARE; they are gone, and read as 0) |
-| `+0x28` | CHSTAT | BUSY (0), DONE (1), ERR (2), PAUSED (3) | BUSY: a chain is running (or paused). DONE: a chain reached its end (NEXT = 0) or was stopped. ERR: a job stopped with an error (DONE stays clear). DONE and ERR are sticky, write 1 to clear |
-| `+0x2C` | CHERR | 23–0 | The address that caused the error, or the descriptor's address (CHDESC) for a bad descriptor. A job started with RUN has no descriptor, so a bad CTRL then gives whatever CHDESC holds (0 after reset) |
+| `0x320` | BLTDESC | ADDR 23–0 | The descriptor START loads. Read: the descriptor running, or the last one loaded. Bit 0 and bits 23–22 are not kept. Writes are ignored while BUSY |
+| `0x324` | BLTCMD | START (0), RUN (1), STOP (2) | Write only, strobes. START: load the descriptor at BLTDESC into the job registers and run it. RUN: run the job already in the job registers. Either way, at the end of a job with BLTNEXT not 0, BLTDESC becomes BLTNEXT and that descriptor is loaded and run. START and RUN are ignored while BUSY; START wins over RUN. STOP ends the job after the destination word in hand; the chain is not followed, and the job cannot be resumed. STOP is ignored while idle |
+| `0x328` | BLTSTAT | BUSY (0), ERR (2) | Read only. BUSY: a job or a chain is running. ERR: the last job stopped on an error; cleared by the next START or RUN |
+| `0x3F0` | DMXINT | BLT (0) | Set when a job with IRQ ends, and whenever the blitter stops: the chain's end, STOP, an error. Write 1 to clear. A flag that comes due in the same clock as the write stays set, so none is lost |
+| `0x3F4` | DMXINTEN | BLT (0) | Interrupt enable |
 
-The job registers keep the values of the last job loaded or written: the engine's progress through a job is kept inside it, not in them. So after a job, writing only the fields that change (for example BPT and DPT) and RUN starts a similar one, which suits the copper: a few MOVEs set up and start a blit with nothing in memory.
+**The job registers** can be written while the blitter is idle; writes are ignored while BUSY. A descriptor load overwrites all eight. They hold the job as loaded or written: the blitter's progress is kept inside it, not in them. So after a job, writing only the fields that change (for example BLTBPT and BLTDPT) and RUN starts a similar one, which suits the copper: a few MOVEs set up and start a blit with nothing in memory.
 
-**Global** (in the space after channel 3's registers):
+**DMACON** (spec 5, section 8): bit 6, **BLTEN**, with DMAEN, lets the blitter use memory cycles. While it is clear a running job waits before its next memory access (BUSY stays set).
 
-| Offset | Name | Bits | Meaning |
-|--------|------|------|---------|
-| `0x3F0` | DMXINT | CH 3–0 | A channel's interrupt is pending (a job with IRQ finished, or an error); write 1 to clear. A bit that comes due in the same clock as the write stays set, so no interrupt is lost (as retro-z80) |
-| `0x3F4` | DMXINTEN | CH 3–0 | Interrupt enables per channel |
+**Interrupts:** the blitter is source 4 (BLT) of the interrupt controller (spec 13), default level 4. It requests its interrupt while DMXINT.BLT and DMXINTEN.BLT are both set. (DMXINT keeps its version 1 name and place; bits 3–1 were channels 1–3.)
 
-**Descriptor RAM:** 2 KB at `0xE06000`–`0xE067FF`, room for 64 descriptors (or small buffers). One block RAM. Its contents are undefined after reset.
+**Errors:** MASK = 3 is the only one. It is found before the job writes anything: the job and the chain end, ERR and DMXINT.BLT are set, and BLTDESC still names the descriptor.
 
-**DMACON** (spec 5, section 8): bit 6, **BLTEN**, with DMAEN, lets the engine use memory cycles. While it is clear, running channels wait (CHSTAT.BUSY stays set). Register and port transfers that need no memory cycles also wait, so clearing BLTEN holds the whole engine.
-
-**Interrupts:** each channel is its own source in the interrupt controller (spec 13), DMA0–DMA3 (sources 4–7), default level 4. A channel requests its interrupt while its DMXINT bit and DMXINTEN bit are both set.
-
-**Errors:** a bad address (section 4), a reserved OP, MASK = 3, BKIND = 2, DKIND = 2 or 3, or kinds that don't go together (section 3.3) stops the channel: ERR is set, CHERR holds the address, CHDESC the descriptor, and the channel's DMXINT bit is set. The other channels carry on.
+**Reset** (every reset, and the 68000's RESET instruction): the blitter is idle, BLTDESC is 0, ERR, DMXINT and DMXINTEN are clear. The job registers are not reset (they are 0 after power-on).
 
 **Typical use:**
 
-1. One job: write the job registers (NEXT = 0), then RUN to CHCTRL.
-2. A chain: write descriptors to the descriptor RAM (`0xE06000`) or Chip RAM, the first one's address to CHDESC, then START to CHCTRL. (Or write the first job into the job registers, with NEXT pointing at the rest, and RUN.)
-3. Carry on. Take the interrupt, or poll CHSTAT.BUSY.
+1. One job: write the job registers (BLTNEXT = 0), then RUN to BLTCMD.
+2. A chain: write descriptors to Chip RAM, the first one's address to BLTDESC, then START to BLTCMD. (Or write the first job into the job registers, with BLTNEXT pointing at the rest, and RUN.)
+3. Carry on. Take the interrupt, or poll BLTSTAT.BUSY.
 
-The copper can also start channels, for example to change a screen area at a set beam position, and its WAIT with the B bit waits until every channel is idle (spec 10).
+The copper can also start jobs, for example to change a screen area at a set beam position, and its WAIT with the B bit waits until the blitter is idle (spec 10).
 
-## 9. Suggested channel use
+## 8. Speed
 
-Software decides, but a sensible default:
+The blitter puts up one memory request at a time and works a word in several clocks, so its own steps, not the memory, set the speed: a memory cycle is 20 ns, and it uses a quarter to a third of those it could have. Measured in simulation (`make -C sim dspeed`), with the display off and the CPU polling BLTSTAT from ROM; the jobs are 4 rows of 16 KB:
 
-| Channel | Use |
-|---------|-----|
-| 0 | SD card |
-| 1 | USB serial |
-| 2 | General memory copies and fills |
-| 3 | Graphics (blits) |
+| Job (64 KB at 8 bpp unless said) | Accesses a word | Time a word | Speed |
+|----------------------------------|-----------------|-------------|-------|
+| Fill (`0xCC`, BCONST) | 1 | 80 ns | 25 MB/s |
+| Copy (`0xCC`) | 2 | 120 ns | 16.7 MB/s |
+| Invert with a constant (`0x66`, BCONST) | 2 | 120 ns | 16.7 MB/s |
+| Cookie-cut with a key (`0xCA`, MASK = 2) | 3 | 160 ns | 12.5 MB/s |
+| Cookie-cut with a mask image (`0xCA`, MASK = 1) | 3, and 1 for every 16 pixels | 170 ns | 11.8 MB/s |
+| Copy at 1 bpp, source and destination 3 bits apart | 2 | 120 ns | 16.7 MB/s (133 million pixels a second) |
 
-## 10. FPGA resources
+With the CPU reading Chip RAM all the while instead, each job took under 1% longer, and the CPU had no wait states.
+
+A 576p line is 32 µs, so a 720-pixel 8 bpp row is filled in about a line's time (29 µs) and copied in about a line and a half (43 µs). For comparison, a 68000 at 20 MHz copies about 4 MB/s (`MOVE.L (A0)+,(A1)+`). A busy display takes cycles the blitter would have used; that is not measured yet (open point D2).
+
+Version 1's figures (copy 25–38 MB/s, fill 50–77 MB/s) were worked out from the free memory cycles and were not reached in practice; the redesign chose a small, simple core first (retro-hw's blitter spec, B2).
+
+## 9. FPGA resources
 
 | Item | Resource |
 |------|----------|
-| Descriptor RAM, 2 KB | 1 block RAM |
-| Per-channel state (the running descriptor's fields and positions) | Distributed RAM, one channel worked on at a time (as in the layer fetch and `sprites.v`) |
-| Data buffer between reads and writes (16 bytes and the shifter's carry) | Logic |
-| The shared datapath: 2D address units, pixel shifter, the mask's shift register, edge masks, colour key compare, minterm, per-pixel adder, the access unit, ports | About 2,300 LUTs in all, and 2 DSP slices (a backwards job's start: rows × stride) (Vivado). Timing met at 100 MHz |
+| The core (`blitter.v`, with the mask image) | About 1,060 LUTs (Vivado, alone) and 400 flip-flops (Yosys); both from retro-hw's blitter spec, B2 |
+| The job registers (8 × 32 bits) and the control registers | Flip-flops, driving the core's job ports directly |
+| Block RAM, DSP | None (version 1: one block RAM, 2 DSP slices) |
 
-## 11. Open points
+Version 1's engine was about 2,300 LUTs here. The figure for this one in the whole design is open point D1.
+
+## 10. Open points
 
 | # | Item |
 |---|------|
-| D1 | Check the engine fits and meets timing at 100 MHz |
-| D2 | Measure the speed figures of section 7 in simulation; retro-z80's board measurements (section 7) suggest they are 25–35% optimistic |
-| D3 | Line drawing and area fill (Amiga blitter features), and scaling or rotating blits: version 2. retro-z80 plans a line job next (its spec 15, G1); the starting sketch is OP 2 LINE, with software working out the octant and Bresenham terms, the pixel going through the minterm, and a per-pixel clip rectangle. Nothing is decided. The line job and the triangle job (D5) are separate jobs with their own layouts, sharing the engine's address units, minterm and memory access (agreed with retro-z80, 30 October 2026) |
-| D4 | MIX (section 3.4): on hold until it has proper resampling |
-| D5 | OP 6 span fill and OP 7 triangle, for flat-shaded 3D: the codes are agreed with retro-z80 (28 October 2026, its D6), and neither project gives them another meaning without asking the other. Their layouts come with a 3D design |
-| D6 | The mask shares B's stride (section 3.3), to keep the descriptor at eight long words: at 8 bpp seven eighths of a mask sheet with B's row length is unused. As retro-z80's D13 |
+| D1 | Build in Vivado: the size in the whole design, and timing at 100 MHz |
+| D2 | Measure the speed with a busy display and CPU, and on the board |
+| D3 | Lines and triangles: retro-hw's `raster` core (`fpga/retro-hw/docs/spec/raster.md`: LINE and TRI jobs, a clip window) gets its own wrapper and registers in the next change; `geom` (3D points) later still. They are separate cores, not operations of this one, so version 1's OP codes (LINE, span fill, triangle, MIX) are gone |
+| D4 | A FIFO mover for the SD card and the serial link (version 1's port jobs) is decided later (retro-hw's blitter spec, B3). Until then the CPU moves those bytes |
+| D5 | Reserved bits of the job registers are ignored, not an error (the core's `job_bad` is tied off). Software written for version 1's CTRL gets a wrong picture, not ERR |
+| D6 | Closed: the mask has its own stride (ASTRIDE) |
+| D7 | `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs, for the raster wrapper to share |
+| D8 | The core does not reset the register that holds C, so in simulation the first job after power-on writes unknown bits if it never reads C (an aligned fill). In hardware the bits cancel and the result is right. `dgen.py` and `dspeed.s` start with a job that reads C; a reset in retro-hw's `blitter.v` would be the proper cure |
 
-## 12. Tests
+## 11. Tests
 
-- **BLIT:** linear and 2D, every BPP, starting and ending part-way through a byte, every ABIT, BBIT and DBIT, positive, zero and negative strides, forwards and backwards (DESC) with overlapping areas, common and random minterms, every MASK. Compare with a Python reference model.
-- **Masks:** a 1 bpp mask image against every BPP, forwards and backwards; a compare mask with key pixels at the edges; cookie-cut (`0xCA`) and clear-through-mask (`0x0A`).
-- **ADD:** every BPP, wrap and saturate, signed and unsigned, memory and constant sources, with and without a mask; check carries never cross pixels.
-- **Chains:** a chain of mixed jobs in Chip RAM and in the descriptor RAM; IRQ only on the marked ones; jobs of zero width or height.
-- **Direct jobs:** a job written into the job registers and started with RUN, with and without a NEXT chain after it; job register writes ignored while BUSY; the job registers read back as loaded.
-- **Channels:** all 4 running at once; a stalled port channel does not hold up the others; STOP and PAUSE.
-- **Priority:** normal jobs never delay the CPU; a HIGH job, or a slot plan that makes the engine owner of every cycle, does (`dtest` T18, T19: 32 CPU reads of Chip RAM timed during a job).
-- **Errors:** a bad address (including the system area and past the end of a 2 MB board's RAM), a reserved OP, MASK = 3 and a bad combination stop only that channel, set ERR and CHERR, and raise its interrupt.
-- **Registers:** a block copy into a layer's registers gives exactly the same result as CPU writes; a copy into CHCTRL that starts another channel works; register reads into memory; a palette written by a job changes each entry whole; a CPU register access is never delayed by the engine.
-- **Ports:** a USB serial transfer each way, paced by the FIFOs (with the FT232H model in `sim/`).
-- **Speed:** the figures in section 7.
+`sim/dtest` (`make dtest`):
+
+- **Random:** chains of jobs from `dgen.py`, every byte of 1 MB of Chip RAM against the model of section 3.3 (`dmodel.py`). Among them one job for every depth, mask kind, row direction (RTL) and stride sign; random minterms, widths from 1 pixel, every BIT, constant and memory B, strides of 0; copies that overlap their source in every direction; jobs of no width or height inside chains; chains started by START and by RUN, with descriptors at any even address.
+- **Directed** (checked by the test ROM): the job registers and BLTDESC read back, bytes written on their own; a fill by RUN with the bytes either side untouched; a copy by START, the job registers then holding the descriptor; a chain with DMXINT only at its end, and after a job with IRQ; MASK = 3 by RUN and in a chain (ERR, DMXINT, nothing written, BLTDESC, ERR cleared by the next start); writes to the job registers and BLTDESC ignored while BUSY; STOP mid-job, the chain not followed; BLTEN clear holding a job; the interrupt request.
+- **The slot plan** (T17–T19): a job never makes the CPU wait with the default plan, and does with the blitter owner of every cycle.
+
+The core has its own tests in retro-hw (`test/blitter`): every memory write against a pixel-exact model, random waits, both byte orders.
