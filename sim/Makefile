@@ -22,11 +22,11 @@ HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/f
 HW    := $(ROOT)/fpga/retro-hw
 HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v
 HW    := $(ROOT)/fpga/retro-hw
-HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/blitter.v $(HW)/rtl/layer_fetch.v
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/blitter.v $(HW)/rtl/raster.v $(HW)/rtl/layer_fetch.v
 RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
 SIM_SRC := $(HW)/platform/sim/oddr.v $(HW)/sim/sram_model.v $(HW)/sim/ft232h_model.v sd_model.v $(HW)/sim/ps2_model.v tb.v
 
-.PHONY: vtest ctest atest dtest dspeed iotest rtest serial cresume all run frame clean
+.PHONY: vtest ctest atest dtest rastest dspeed iotest rtest serial cresume all run frame clean
 all: run
 
 $(BUILD):
@@ -108,6 +108,21 @@ dtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	grep -a "^FAIL\|^PASS" $$d/sim.log || true; \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
 	python3 dtest/dmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex
+
+# Rasteriser test (spec 17): chains of random lines and triangles
+# (rastest/rgen.py; SEED picks them), then every byte of the test area
+# checked against a Python model (rastest/rmodel.py); and directed tests
+# checked by the test ROM
+rastest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
+	@set -e; d=$(BUILD)/rastest; mkdir -p $$d; \
+	$(VASM) -quiet -Fbin -I $(ROOT)/firmware/include -o $$d/rastest.bin rastest/rastest.s; \
+	python3 $(ROOT)/tools/bin2hex.py $$d/rastest.bin $$d/rastest.hex; \
+	python3 rastest/rgen.py $$d $(SEED); \
+	cp $(BUILD)/microrom.mem $(BUILD)/nanorom.mem $$d/; \
+	(cd $$d && $(VVP) -n ../tb.vvp +rom=rastest.hex +ram=ram.hex +dumpram=after.hex > sim.log); \
+	grep -a "^FAIL\|^PASS" $$d/sim.log || true; \
+	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
+	python3 rastest/rmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex
 
 # Blitter speed (spec 11, section 8): six 64 KB jobs, each one's time and
 # memory cycles printed by the testbench; first with the CPU in ROM, then

@@ -17,7 +17,7 @@ CHIPRAM_SIZE                 equ $400000
 ROM                          equ $F80000
 ROM_SIZE                     equ $8000
 
-; ---- CUSTOM: Custom registers: video, blitter, audio, copper
+; ---- CUSTOM: Custom registers: video, blitter, rasteriser, audio, copper
 CUSTOM                       equ $E00000
 CUSTOM_SIZE                  equ $10000
 VIDCON                       equ $0          ; RW, spec 4/6.1
@@ -121,8 +121,8 @@ MEMSLOT0_CPU_B               equ $4
 MEMSLOT0_CPU_M               equ $10
 MEMSLOT0_BLT_B               equ $5
 MEMSLOT0_BLT_M               equ $20
-MEMSLOT0_PORT_B              equ $6
-MEMSLOT0_PORT_M              equ $40
+MEMSLOT0_RAS_B               equ $6
+MEMSLOT0_RAS_M               equ $40
 MEMSLOT0_LOCK_B              equ $7
 MEMSLOT0_LOCK_M              equ $80
 MEMSLOT1                     equ $9C         ; RW, spec 5/8.1
@@ -138,8 +138,8 @@ MEMSLOT1_CPU_B               equ $4
 MEMSLOT1_CPU_M               equ $10
 MEMSLOT1_BLT_B               equ $5
 MEMSLOT1_BLT_M               equ $20
-MEMSLOT1_PORT_B              equ $6
-MEMSLOT1_PORT_M              equ $40
+MEMSLOT1_RAS_B               equ $6
+MEMSLOT1_RAS_M               equ $40
 MEMSLOT1_LOCK_B              equ $7
 MEMSLOT1_LOCK_M              equ $80
 MEMSLOT2                     equ $A0         ; RW, spec 5/8.1
@@ -155,8 +155,8 @@ MEMSLOT2_CPU_B               equ $4
 MEMSLOT2_CPU_M               equ $10
 MEMSLOT2_BLT_B               equ $5
 MEMSLOT2_BLT_M               equ $20
-MEMSLOT2_PORT_B              equ $6
-MEMSLOT2_PORT_M              equ $40
+MEMSLOT2_RAS_B               equ $6
+MEMSLOT2_RAS_M               equ $40
 MEMSLOT2_LOCK_B              equ $7
 MEMSLOT2_LOCK_M              equ $80
 MEMSLOT3                     equ $A4         ; RW, spec 5/8.1
@@ -172,8 +172,8 @@ MEMSLOT3_CPU_B               equ $4
 MEMSLOT3_CPU_M               equ $10
 MEMSLOT3_BLT_B               equ $5
 MEMSLOT3_BLT_M               equ $20
-MEMSLOT3_PORT_B              equ $6
-MEMSLOT3_PORT_M              equ $40
+MEMSLOT3_RAS_B               equ $6
+MEMSLOT3_RAS_M               equ $40
 MEMSLOT3_LOCK_B              equ $7
 MEMSLOT3_LOCK_M              equ $80
 MEMSLOT4                     equ $A8         ; RW, spec 5/8.1
@@ -189,8 +189,8 @@ MEMSLOT4_CPU_B               equ $4
 MEMSLOT4_CPU_M               equ $10
 MEMSLOT4_BLT_B               equ $5
 MEMSLOT4_BLT_M               equ $20
-MEMSLOT4_PORT_B              equ $6
-MEMSLOT4_PORT_M              equ $40
+MEMSLOT4_RAS_B               equ $6
+MEMSLOT4_RAS_M               equ $40
 MEMSLOT4_LOCK_B              equ $7
 MEMSLOT4_LOCK_M              equ $80
 BLTCTRL                      equ $300        ; RW, spec 11/3
@@ -274,12 +274,99 @@ BLTSTAT_BUSY_B               equ $0
 BLTSTAT_BUSY_M               equ $1
 BLTSTAT_ERR_B                equ $2
 BLTSTAT_ERR_M                equ $4
+RASCTRL                      equ $340        ; RW, spec 17/3
+RASCTRL_VALUE_B              equ $0
+RASCTRL_VALUE_W              equ $8
+RASCTRL_VALUE_M              equ $FF
+RASCTRL_BPP_B                equ $8
+RASCTRL_BPP_W                equ $2
+RASCTRL_BPP_M                equ $300
+RASCTRL_IRQ_B                equ $C
+RASCTRL_IRQ_M                equ $1000
+RASCTRL_TRI_B                equ $10
+RASCTRL_TRI_M                equ $10000
+RASCTRL_NOLAST_B             equ $11
+RASCTRL_NOLAST_M             equ $20000
+RASCTRL_MINTERM_B            equ $18
+RASCTRL_MINTERM_W            equ $8
+RASCTRL_MINTERM_M            equ $FF000000
+RASP0                        equ $344        ; RW, spec 17/3
+RASP0_X_B                    equ $10
+RASP0_X_W                    equ $10
+RASP0_X_M                    equ $FFFF0000
+RASP0_Y_B                    equ $0
+RASP0_Y_W                    equ $10
+RASP0_Y_M                    equ $FFFF
+RASP1                        equ $348        ; RW, spec 17/3
+RASP1_X_B                    equ $10
+RASP1_X_W                    equ $10
+RASP1_X_M                    equ $FFFF0000
+RASP1_Y_B                    equ $0
+RASP1_Y_W                    equ $10
+RASP1_Y_M                    equ $FFFF
+RASP2                        equ $34C        ; RW, spec 17/3
+RASP2_X_B                    equ $10
+RASP2_X_W                    equ $10
+RASP2_X_M                    equ $FFFF0000
+RASP2_Y_B                    equ $0
+RASP2_Y_W                    equ $10
+RASP2_Y_M                    equ $FFFF
+RASDPT                       equ $350        ; RW, spec 17/3
+RASDPT_ADDR_B                equ $0
+RASDPT_ADDR_W                equ $18
+RASDPT_ADDR_M                equ $FFFFFF
+RASSTRIDE                    equ $354        ; RW, spec 17/3
+RASSTRIDE_DSTRIDE_B          equ $0
+RASSTRIDE_DSTRIDE_W          equ $10
+RASSTRIDE_DSTRIDE_M          equ $FFFF
+RASPAT                       equ $358        ; RW, spec 17/3
+RASPAT_PATTERN_B             equ $0
+RASPAT_PATTERN_W             equ $10
+RASPAT_PATTERN_M             equ $FFFF
+RASNEXT                      equ $35C        ; RW, spec 17/3
+RASNEXT_ADDR_B               equ $0
+RASNEXT_ADDR_W               equ $18
+RASNEXT_ADDR_M               equ $FFFFFF
+RASDESC                      equ $360        ; RW, spec 17/7
+RASDESC_ADDR_B               equ $0
+RASDESC_ADDR_W               equ $18
+RASDESC_ADDR_M               equ $FFFFFF
+RASCMD                       equ $364        ; W, spec 17/7
+RASCMD_START_B               equ $0
+RASCMD_START_M               equ $1
+RASCMD_RUN_B                 equ $1
+RASCMD_RUN_M                 equ $2
+RASCMD_STOP_B                equ $2
+RASCMD_STOP_M                equ $4
+RASSTAT                      equ $368        ; R, spec 17/7
+RASSTAT_BUSY_B               equ $0
+RASSTAT_BUSY_M               equ $1
+RASSTAT_ERR_B                equ $2
+RASSTAT_ERR_M                equ $4
+RASCLIPMIN                   equ $36C        ; RW, spec 17/4
+RASCLIPMIN_X_B               equ $10
+RASCLIPMIN_X_W               equ $10
+RASCLIPMIN_X_M               equ $FFFF0000
+RASCLIPMIN_Y_B               equ $0
+RASCLIPMIN_Y_W               equ $10
+RASCLIPMIN_Y_M               equ $FFFF
+RASCLIPMAX                   equ $370        ; RW, spec 17/4
+RASCLIPMAX_X_B               equ $10
+RASCLIPMAX_X_W               equ $10
+RASCLIPMAX_X_M               equ $FFFF0000
+RASCLIPMAX_Y_B               equ $0
+RASCLIPMAX_Y_W               equ $10
+RASCLIPMAX_Y_M               equ $FFFF
 DMXINT                       equ $3F0        ; W1C, spec 11/7
 DMXINT_BLT_B                 equ $0
 DMXINT_BLT_M                 equ $1
+DMXINT_RAS_B                 equ $1
+DMXINT_RAS_M                 equ $2
 DMXINTEN                     equ $3F4        ; RW, spec 11/7
 DMXINTEN_BLT_B               equ $0
 DMXINTEN_BLT_M               equ $1
+DMXINTEN_RAS_B               equ $1
+DMXINTEN_RAS_M               equ $2
 SPRDMA                       equ $500        ; SC, spec 9/6
 SPRDMA_SPR_B                 equ $0
 SPRDMA_SPR_W                 equ $8
@@ -1143,6 +1230,62 @@ BLTJOB_NEXT                  equ $1C
 BLTJOB_NEXT_ADDR_B           equ $0
 BLTJOB_NEXT_ADDR_W           equ $18
 BLTJOB_NEXT_ADDR_M           equ $FFFFFF
+
+; ---- RASJOB: 32-byte layout in memory, spec 17/3
+RASJOB_SIZEOF                equ $20
+RASJOB_CTRL                  equ $0
+RASJOB_CTRL_VALUE_B          equ $0
+RASJOB_CTRL_VALUE_W          equ $8
+RASJOB_CTRL_VALUE_M          equ $FF
+RASJOB_CTRL_BPP_B            equ $8
+RASJOB_CTRL_BPP_W            equ $2
+RASJOB_CTRL_BPP_M            equ $300
+RASJOB_CTRL_IRQ_B            equ $C
+RASJOB_CTRL_IRQ_M            equ $1000
+RASJOB_CTRL_TRI_B            equ $10
+RASJOB_CTRL_TRI_M            equ $10000
+RASJOB_CTRL_NOLAST_B         equ $11
+RASJOB_CTRL_NOLAST_M         equ $20000
+RASJOB_CTRL_MINTERM_B        equ $18
+RASJOB_CTRL_MINTERM_W        equ $8
+RASJOB_CTRL_MINTERM_M        equ $FF000000
+RASJOB_P0                    equ $4
+RASJOB_P0_X_B                equ $10
+RASJOB_P0_X_W                equ $10
+RASJOB_P0_X_M                equ $FFFF0000
+RASJOB_P0_Y_B                equ $0
+RASJOB_P0_Y_W                equ $10
+RASJOB_P0_Y_M                equ $FFFF
+RASJOB_P1                    equ $8
+RASJOB_P1_X_B                equ $10
+RASJOB_P1_X_W                equ $10
+RASJOB_P1_X_M                equ $FFFF0000
+RASJOB_P1_Y_B                equ $0
+RASJOB_P1_Y_W                equ $10
+RASJOB_P1_Y_M                equ $FFFF
+RASJOB_P2                    equ $C
+RASJOB_P2_X_B                equ $10
+RASJOB_P2_X_W                equ $10
+RASJOB_P2_X_M                equ $FFFF0000
+RASJOB_P2_Y_B                equ $0
+RASJOB_P2_Y_W                equ $10
+RASJOB_P2_Y_M                equ $FFFF
+RASJOB_DPT                   equ $10
+RASJOB_DPT_ADDR_B            equ $0
+RASJOB_DPT_ADDR_W            equ $18
+RASJOB_DPT_ADDR_M            equ $FFFFFF
+RASJOB_STRIDE                equ $14
+RASJOB_STRIDE_DSTRIDE_B      equ $0
+RASJOB_STRIDE_DSTRIDE_W      equ $10
+RASJOB_STRIDE_DSTRIDE_M      equ $FFFF
+RASJOB_PAT                   equ $18
+RASJOB_PAT_PATTERN_B         equ $0
+RASJOB_PAT_PATTERN_W         equ $10
+RASJOB_PAT_PATTERN_M         equ $FFFF
+RASJOB_NEXT                  equ $1C
+RASJOB_NEXT_ADDR_B           equ $0
+RASJOB_NEXT_ADDR_W           equ $18
+RASJOB_NEXT_ADDR_M           equ $FFFFFF
 
 ; ---- Named numbers
 TEXTCELL_CHAR_SHIFT          equ $0

@@ -14,7 +14,7 @@
 `define RM_ROM_BASE                         24'hF80000
 `define RM_ROM_SIZE                         25'h008000
 
-// ---- CUSTOM: Custom registers: video, blitter, audio, copper
+// ---- CUSTOM: Custom registers: video, blitter, rasteriser, audio, copper
 `define RM_CUSTOM_BASE                      24'hE00000
 `define RM_CUSTOM_SIZE                      25'h010000
 `define RM_VIDCON                           16'h0000
@@ -67,7 +67,7 @@
 `define RM_MEMSLOT0_COP                     3
 `define RM_MEMSLOT0_CPU                     4
 `define RM_MEMSLOT0_BLT                     5
-`define RM_MEMSLOT0_PORT                    6
+`define RM_MEMSLOT0_RAS                     6
 `define RM_MEMSLOT0_LOCK                    7
 `define RM_MEMSLOT1                         16'h009C
 `define RM_MEMSLOT1_BPL                     0
@@ -76,7 +76,7 @@
 `define RM_MEMSLOT1_COP                     3
 `define RM_MEMSLOT1_CPU                     4
 `define RM_MEMSLOT1_BLT                     5
-`define RM_MEMSLOT1_PORT                    6
+`define RM_MEMSLOT1_RAS                     6
 `define RM_MEMSLOT1_LOCK                    7
 `define RM_MEMSLOT2                         16'h00A0
 `define RM_MEMSLOT2_BPL                     0
@@ -85,7 +85,7 @@
 `define RM_MEMSLOT2_COP                     3
 `define RM_MEMSLOT2_CPU                     4
 `define RM_MEMSLOT2_BLT                     5
-`define RM_MEMSLOT2_PORT                    6
+`define RM_MEMSLOT2_RAS                     6
 `define RM_MEMSLOT2_LOCK                    7
 `define RM_MEMSLOT3                         16'h00A4
 `define RM_MEMSLOT3_BPL                     0
@@ -94,7 +94,7 @@
 `define RM_MEMSLOT3_COP                     3
 `define RM_MEMSLOT3_CPU                     4
 `define RM_MEMSLOT3_BLT                     5
-`define RM_MEMSLOT3_PORT                    6
+`define RM_MEMSLOT3_RAS                     6
 `define RM_MEMSLOT3_LOCK                    7
 `define RM_MEMSLOT4                         16'h00A8
 `define RM_MEMSLOT4_BPL                     0
@@ -103,7 +103,7 @@
 `define RM_MEMSLOT4_COP                     3
 `define RM_MEMSLOT4_CPU                     4
 `define RM_MEMSLOT4_BLT                     5
-`define RM_MEMSLOT4_PORT                    6
+`define RM_MEMSLOT4_RAS                     6
 `define RM_MEMSLOT4_LOCK                    7
 `define RM_BLTCTRL                          16'h0300
 `define RM_BLTCTRL_KEY                      7:0
@@ -142,10 +142,51 @@
 `define RM_BLTSTAT                          16'h0328
 `define RM_BLTSTAT_BUSY                     0
 `define RM_BLTSTAT_ERR                      2
+`define RM_RASCTRL                          16'h0340
+`define RM_RASCTRL_VALUE                    7:0
+`define RM_RASCTRL_BPP                      9:8
+`define RM_RASCTRL_IRQ                      12
+`define RM_RASCTRL_TRI                      16
+`define RM_RASCTRL_NOLAST                   17
+`define RM_RASCTRL_MINTERM                  31:24
+`define RM_RASP0                            16'h0344
+`define RM_RASP0_X                          31:16
+`define RM_RASP0_Y                          15:0
+`define RM_RASP1                            16'h0348
+`define RM_RASP1_X                          31:16
+`define RM_RASP1_Y                          15:0
+`define RM_RASP2                            16'h034C
+`define RM_RASP2_X                          31:16
+`define RM_RASP2_Y                          15:0
+`define RM_RASDPT                           16'h0350
+`define RM_RASDPT_ADDR                      23:0
+`define RM_RASSTRIDE                        16'h0354
+`define RM_RASSTRIDE_DSTRIDE                15:0
+`define RM_RASPAT                           16'h0358
+`define RM_RASPAT_PATTERN                   15:0
+`define RM_RASNEXT                          16'h035C
+`define RM_RASNEXT_ADDR                     23:0
+`define RM_RASDESC                          16'h0360
+`define RM_RASDESC_ADDR                     23:0
+`define RM_RASCMD                           16'h0364
+`define RM_RASCMD_START                     0
+`define RM_RASCMD_RUN                       1
+`define RM_RASCMD_STOP                      2
+`define RM_RASSTAT                          16'h0368
+`define RM_RASSTAT_BUSY                     0
+`define RM_RASSTAT_ERR                      2
+`define RM_RASCLIPMIN                       16'h036C
+`define RM_RASCLIPMIN_X                     31:16
+`define RM_RASCLIPMIN_Y                     15:0
+`define RM_RASCLIPMAX                       16'h0370
+`define RM_RASCLIPMAX_X                     31:16
+`define RM_RASCLIPMAX_Y                     15:0
 `define RM_DMXINT                           16'h03F0
 `define RM_DMXINT_BLT                       0
+`define RM_DMXINT_RAS                       1
 `define RM_DMXINTEN                         16'h03F4
 `define RM_DMXINTEN_BLT                     0
+`define RM_DMXINTEN_RAS                     1
 `define RM_SPRDMA                           16'h0500
 `define RM_SPRDMA_SPR                       7:0
 `define RM_SPRDMA_SETCLR                    15
@@ -499,6 +540,33 @@
 `define RM_BLTJOB_VALUE_VALUE               15:0
 `define RM_BLTJOB_NEXT                      8'h1C
 `define RM_BLTJOB_NEXT_ADDR                 23:0
+
+// ---- RASJOB: 32-byte layout in memory
+`define RM_RASJOB_SIZEOF                    32
+`define RM_RASJOB_CTRL                      8'h00
+`define RM_RASJOB_CTRL_VALUE                7:0
+`define RM_RASJOB_CTRL_BPP                  9:8
+`define RM_RASJOB_CTRL_IRQ                  12
+`define RM_RASJOB_CTRL_TRI                  16
+`define RM_RASJOB_CTRL_NOLAST               17
+`define RM_RASJOB_CTRL_MINTERM              31:24
+`define RM_RASJOB_P0                        8'h04
+`define RM_RASJOB_P0_X                      31:16
+`define RM_RASJOB_P0_Y                      15:0
+`define RM_RASJOB_P1                        8'h08
+`define RM_RASJOB_P1_X                      31:16
+`define RM_RASJOB_P1_Y                      15:0
+`define RM_RASJOB_P2                        8'h0C
+`define RM_RASJOB_P2_X                      31:16
+`define RM_RASJOB_P2_Y                      15:0
+`define RM_RASJOB_DPT                       8'h10
+`define RM_RASJOB_DPT_ADDR                  23:0
+`define RM_RASJOB_STRIDE                    8'h14
+`define RM_RASJOB_STRIDE_DSTRIDE            15:0
+`define RM_RASJOB_PAT                       8'h18
+`define RM_RASJOB_PAT_PATTERN               15:0
+`define RM_RASJOB_NEXT                      8'h1C
+`define RM_RASJOB_NEXT_ADDR                 23:0
 
 // ---- Named numbers
 `define RM_TEXTCELL_CHAR_SHIFT              32'h00000000
