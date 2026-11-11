@@ -86,9 +86,14 @@ def main():
             if not c["on"]:
                 continue
             ip, frac = c["pos"] >> 16, c["pos"] & 0xFFFF
-            ip1 = ip + 1 if ip + 1 < c["len"] else ip
             k = 2 if c["b16"] else 1
-            s0, s1 = sample(c, c["start"] + k * ip), sample(c, c["start"] + k * ip1)
+            s0 = sample(c, c["start"] + k * ip)
+            if ip + 1 < c["len"]:
+                s1 = sample(c, c["start"] + k * (ip + 1))
+            elif c["oneshot"] or c["regs"][1] == 0:
+                s1 = s0                         # no block to come
+            else:
+                s1 = sample(c, c["regs"][0])    # the join: the first sample of the block to come
             s = s0 if c["nearest"] else s0 + (((s1 - s0) * frac) >> 16)
             s = ((s + 32768) & 0xFFFF) - 32768
             accl += s * c["vl"]

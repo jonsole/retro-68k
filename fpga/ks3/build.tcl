@@ -18,7 +18,7 @@ read_verilog -sv [list \
     $root/fpga/third_party/fx68k/uaddrPla.sv ]
 read_verilog [list \
     $rtl/cpu_fx68k.v $rtl/bus_if.v $rtl/bootrom.v $rtl/sysregs.v $rtl/serial.v $rtl/intc.v $rtl/timers.v $rtl/sprites.v $rtl/video.v $rtl/copper.v $rtl/audio.v $rtl/dmx.v $rtl/sdspi.v $rtl/ps2kb.v $rtl/retro68k.v $rtl/por_align.v $rtl/top_ks3.v \
-    $hw/rtl/timebase.v $hw/rtl/sram_ctl.v $hw/rtl/dmac.v $hw/rtl/fifo8.v $hw/rtl/layer_pix.v $hw/rtl/sigma_delta2.v $hw/rtl/tmds_encoder.v $hw/rtl/ps2_core.v $hw/rtl/slip_rx.v $hw/rtl/serial_link.v $hw/rtl/ft232h_if.v $hw/rtl/sprite_fetch.v $hw/rtl/sprite_pix.v $hw/rtl/copper_engine.v $hw/rtl/blitter.v $hw/rtl/raster.v $hw/rtl/layer_fetch.v \
+    $hw/rtl/timebase.v $hw/rtl/sram_ctl.v $hw/rtl/dmac.v $hw/rtl/fifo8.v $hw/rtl/layer_pix.v $hw/rtl/sigma_delta2.v $hw/rtl/audio_engine.v $hw/rtl/tmds_encoder.v $hw/rtl/ps2_core.v $hw/rtl/slip_rx.v $hw/rtl/serial_link.v $hw/rtl/ft232h_if.v $hw/rtl/sprite_fetch.v $hw/rtl/sprite_pix.v $hw/rtl/copper_engine.v $hw/rtl/blitter.v $hw/rtl/raster.v $hw/rtl/layer_fetch.v \
     $rtl/platform/artix7/ks3_clocks.v $hw/platform/artix7/oddr.v \
     $hw/platform/artix7/hdmi_out.v $rtl/platform/artix7/vga_out.v ]
 read_xdc $root/fpga/ks3/ks3.xdc

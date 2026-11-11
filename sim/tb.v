@@ -214,14 +214,21 @@ module tb;
     // Audio log (+audio): every output sample, and how many 1s each DAC
     // stream gave during the sample before (audio.txt, for atest/amodel.py)
     integer af = 0, ones_l = 0, ones_r = 0;
+    reg [3:0] a_st = 4'd0, a_in = 4'd0;        // channels started, and played, in this output sample
     initial if ($test$plusargs("audio")) af = $fopen("audio.txt", "w");
     always @(posedge clk100) if (af != 0) begin
         ones_l = ones_l + dut.aud_l;
         ones_r = ones_r + dut.aud_r;
+        if (!dut.aud.eng.stall) begin
+            if (dut.aud.eng.es == 4'd1 && dut.aud.eng.take) a_st[dut.aud.eng.ch] = 1'b1;    // E_CH
+            if (dut.aud.eng.es == 4'd2) a_in[dut.aud.eng.ch] = 1'b1;                        // E_GO
+        end
         if (dut.aud.tick_done) begin
-            if (dut.aud.incl_q != 4'd0 || dut.aud.started != 4'd0)
+            if (a_in != 4'd0 || a_st != 4'd0)
                 $fwrite(af, "%0d %0d %0d %0d %0d %0d\n", dut.aud.out_l, dut.aud.out_r, ones_l, ones_r,
-                        dut.aud.started, dut.aud.incl_q);
+                        a_st, a_in);
+            a_st = 4'd0;
+            a_in = 4'd0;
             ones_l = 0;
             ones_r = 0;
         end

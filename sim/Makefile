@@ -18,11 +18,11 @@ FX68K := $(ROOT)/fpga/third_party/fx68k
 BUILD := build
 
 HW    := $(ROOT)/fpga/retro-hw
-HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/audio_engine.v $(HW)/rtl/tmds_encoder.v
 HW    := $(ROOT)/fpga/retro-hw
-HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/audio_engine.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v
 HW    := $(ROOT)/fpga/retro-hw
-HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/blitter.v $(HW)/rtl/raster.v $(HW)/rtl/layer_fetch.v
+HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/fifo8.v $(HW)/rtl/layer_pix.v $(HW)/rtl/sigma_delta2.v $(HW)/rtl/audio_engine.v $(HW)/rtl/tmds_encoder.v $(HW)/rtl/ps2_core.v $(HW)/rtl/slip_rx.v $(HW)/rtl/serial_link.v $(HW)/rtl/ft232h_if.v $(HW)/rtl/sprite_fetch.v $(HW)/rtl/sprite_pix.v $(HW)/rtl/copper_engine.v $(HW)/rtl/blitter.v $(HW)/rtl/raster.v $(HW)/rtl/layer_fetch.v
 RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
 SIM_SRC := $(HW)/platform/sim/oddr.v $(HW)/sim/sram_model.v $(HW)/sim/ft232h_model.v sd_model.v $(HW)/sim/ps2_model.v tb.v
 
