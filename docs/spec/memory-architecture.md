@@ -48,15 +48,15 @@ The full map is in spec 3, section 1. Memory in short:
 
 ### 4.1 Clocks
 
-The system clocks are whole-number divisions of one 200 MHz master, from the first MMCM. The pixel clock comes from a second MMCM, from the same 50 MHz oscillator (spec 4, section 3.1):
+The system clocks come from the first MMCM, whose VCO runs at 1000 MHz from the 50 MHz oscillator. The pixel clock comes from a second MMCM, from the same oscillator (spec 4, section 3.1):
 
-| Clock | Master ÷ | Frequency |
-|-------|----------|-----------|
-| System / SRAM controller | 2 | 100 MHz |
-| fx68k master clock | 5 | 40 MHz with alternating phase enables → **20 MHz 68000** |
-| Memory cycle | 4 | 20 ns |
-| Slot | 20 | 100 ns = 5 memory cycles |
-| Pixel clock | – (MMCM 2: 50 ÷ 5 × 108 ÷ 40) | 27 MHz (576p), asynchronous to the clocks above |
+| Clock | From | Frequency |
+|-------|------|-----------|
+| System / SRAM controller | MMCM 1, VCO ÷ 10 | 100 MHz |
+| fx68k master clock | MMCM 1, VCO ÷ 25 | 40 MHz with alternating phase enables → **20 MHz 68000** |
+| Memory cycle | 2 system clocks | 20 ns |
+| Slot | 10 system clocks | 100 ns = 5 memory cycles |
+| Pixel clock | MMCM 2 (VCO 1080 MHz ÷ 40) | 27 MHz (576p), asynchronous to the clocks above |
 
 Both MMCMs run from the same oscillator, so the frequencies are exact: every 576p scan line (864 pixels at 27 MHz) is exactly 32 µs, which is **320 slots** (spec 4, section 3.2). Only the phase between the pixel clock and the system clock is unknown, so the video treats them as asynchronous clock domains and crosses between them with synchronisers and handshakes. The slot counter `hslot` restarts at 0 at the start of every line.
 
@@ -64,10 +64,12 @@ Both MMCMs run from the same oscillator, so the frequencies are exact: every 576
 
 The SRAM is asynchronous: give it an address and it answers within 10 ns. With the FPGA's pin delays, a safe access takes **2 clocks (20 ns)**:
 
-| | Clock 0 (0 ns) | Clock 1 (10 ns) | End (20 ns) |
-|---|---|---|---|
-| **Read** | Address, /CS, /OE and byte selects out | SRAM drives data | Data captured |
-| **Write** | Address, data and byte selects out | /WE pulsed low for about 8–10 ns (timed with the 200 MHz master) | Write done |
+Times are from when the cycle reaches the pins (see the last point below). The half-clock edges come from ODDR output registers on the 100 MHz clock, so no faster clock is needed:
+
+| | 0 ns | 5 ns | 15 ns | 20 ns |
+|---|---|---|---|---|
+| **Read** | Address, /CS and byte selects out | /OE low | | Data captured |
+| **Write** | Address and byte selects out | Data driven, /WE low | /WE high (a 10 ns pulse, with 5 ns of address setup and hold) | Write done |
 
 - Any address, any mix of reads and writes, back to back: there are no rows, banks or bursts to worry about.
 - Between a read and a following write, the controller releases /OE early and starts driving data half a clock later, so the SRAM and FPGA never drive the bus at the same time. No gap cycle is needed. This must be checked against the datasheet timings (tHZOE, tPWE, tSD; open point M2).

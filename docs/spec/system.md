@@ -19,7 +19,7 @@ The other system-area devices have their own specs: timers (12), interrupt contr
 | Start-up | A few microseconds from the end of FPGA configuration to the first 68000 instruction |
 | Start-up progress | Shown as the screen's background colour (Amiga-style) and on the serial console. The board has no user LEDs or switches |
 | Start-up options | Keys held during reset, and the DivMMC button |
-| Buttons | Reset button = reset; Multiface button = NMI; DivMMC button = "monitor" button |
+| Buttons | Reset button = reset (a long press is the same as a short one: an upload comes only from the PC); Multiface button = NMI; DivMMC button = "monitor" button |
 | I2C | A small I2C master for the battery-backed real-time clock and the HDMI DDC |
 | Installing | Development: JTAG straight into the FPGA. Everyday use: an extra Next core in a free flash slot |
 
@@ -101,11 +101,11 @@ Rebuilding the FPGA with Vivado takes minutes. To try new boot ROM code quickly:
 - Setting **SYSCON.ROMWE** makes the boot ROM writable.
 - A program (or the USB upload loader) copies a new ROM image to `0xF80000`, then resets.
 - The new ROM runs from the next reset onwards, until the FPGA is reloaded.
-- **SYSCON.ROMLOCK** makes ROMWE impossible to set until the next power-on, for when the system should not be changed by accident. The boot ROM sets it unless the development key (D) is held during reset (section 5).
+- **SYSCON.ROMLOCK** makes ROMWE impossible to set until the next power-on, for when the system should not be changed by accident. The boot ROM decides it at power-on only (RESETWHY.POWER): it sets it unless the development key (D) is held (section 5). Later resets leave it as it is, so a development session can still take a new ROM image after an UPLOAD reset (the shared monitor spec, section 9).
 
 ## 4. What the boot ROM does
 
-The boot ROM's own spec will define this in detail. In outline:
+The boot ROM's own spec will define this in detail; the monitor, the upload protocol, the image header and the boot file (`BOOT.68K`) are in the shared spec `monitor.md`, the same file in retro68k and retro-z80. In outline:
 
 1. Show progress as the screen's background colour, and on the serial console, at each step (section 5).
 2. Read RESETWHY, the keys held down and the DivMMC button.
@@ -169,13 +169,57 @@ A transfer of a few bytes to the clock takes well under a millisecond, so no int
 The Next keeps several FPGA designs ("cores") in its configuration flash, in slots. Slot 0 holds the anti-brick core and slot 1 the Next itself. **Those two slots are never touched.**
 
 - **Development:** the design is loaded straight into the FPGA over the board's JTAG header, with Vivado (or openFPGALoader) and a JTAG cable. Nothing is written to the flash; turning the power off brings back the normal Next.
+- **Over the link:** with the Pi link (spec 14, section 2.1), a new design is written into our own flash slot over Wi-Fi and the FPGA restarts into it, with no JTAG and the case closed (section 7.2).
 - **Everyday use:** the design is installed as an extra Next core in a free flash slot, and started from the Next's core menu. The exact KS3 core file format and slot size are to be confirmed (open point SY5): an XC7A35T image is about 2.2 MB, bigger than the 512 KB slots documented for the older Spartan-6 boards.
+
+> Sections 7.1–7.3 are a **draft, shared with retro-z80** (decided there 1 November 2026). Not built yet; the addresses wait for SY5.
+
+### 7.1 The flash writer
+
+A small unit in the FPGA reads, erases and programs the configuration flash, and restarts the FPGA. The flash is a Macronix MX25L25645G, 32 MB, used with 4-byte addresses (the same on the KS2 and KS3). Its pins are ordinary user pins: CS L13, SCLK D9 (wired beside the configuration clock CCLK, E9, so no STARTUPE2 is needed), MOSI K17, MISO K18, WP L14 (held low) and HOLD M14 (held high). Software sees a 256-byte page buffer and a few commands; the unit sends the flash's own commands (write enable, erase, page program, read, status polling) itself.
+
+**The flash's layout** (from the Next's own FPGA sources and firmware): 15 slots of `0x220000` bytes (2,176 KB). Slot 0 is the anti-brick core, slot 1 the Next, slots 2–7 are reserved, and slots 8–14 hold extra cores (slot 8 at `0x1100000`, up to slot 14 at `0x1DC0000`). The Next's menu writes a whole `.bit` file, header included, and reads the header back to name the slot. Our image is about 2.19 MB uncompressed.
+
+We use two slots, set when the design is built: a **known-good** copy (FLASHGOOD, default slot 8), installed with the Next's own menu, and a **development** slot (FLASHMIN, default slot 9), which the link writes.
+
+**Only the development slot can be written.** ERASE and PROGRAM outside FLASHMIN to FLASHMIN + `0x21FFFF` are refused and set DENIED. No software bug or bad upload can damage the anti-brick core, the Next, our known-good copy or anyone's other cores. READ and BOOT work anywhere.
+
+| Command | What it does |
+|---------|--------------|
+| READ | Read the 256 bytes at FLASHADDR into the page buffer |
+| ERASE | Erase the 64 KB sector at FLASHADDR (its low 16 bits are ignored) |
+| PROGRAM | Write the page buffer to the 256-byte page at FLASHADDR (its low 8 bits are ignored). The page must have been erased |
+| BOOT | Restart the FPGA from the design at FLASHADDR: through ICAPE2, the sequence dummy word, sync word `AA995566`, NOP, WBSTAR = FLASHADDR >> 8 (the start address in 32-bit SPI mode), IPROG, then NOPs, each byte bit-reversed as ICAPE2 needs. Everything stops; the new design starts with a power-on reset |
+
+Registers, in the system block (spec 3), `0xF00900`–`0xF00AFF`:
+
+| Offset | Name | Bits | Meaning |
+|--------|------|------|---------|
+| `0x900` | FLASHADDR | 24–0 | Byte address in the flash (32 MB) |
+| `0x904` | FLASHCMD | KEY (31–16), CMD (2–0) | Write CMD 1 READ, 2 ERASE, 3 PROGRAM, 4 BOOT, with KEY = `0xF1A5`; any other KEY is ignored. Ignored while BUSY |
+| `0x908` | FLASHSTAT | BUSY (0), DENIED (1) | BUSY: a command is running (an erase takes up to a few hundred ms). DENIED: the last ERASE or PROGRAM was outside the development slot and was not done |
+| `0x90C` | FLASHMIN | 24–0 | Read only: the start of the development slot |
+| `0x910` | FLASHGOOD | 24–0 | Read only: the start of the known-good slot |
+| `0xA00`–`0xAFF` | FLASHBUF | | The 256-byte page buffer, read and write. The DMA engine can fill it straight from the link (spec 11, port 1) |
+
+### 7.2 Loading a new design over the link
+
+1. The PC sends UPLOAD (spec 14, section 3), so the boot ROM's loader runs.
+2. The PC sends the `.bit` file whole, with the upload protocol (`monitor.md`, section 6.7, TARGET 3), in order. The first data frame must carry the FPGA's IDCODE: a design for another FPGA is refused before anything is written.
+3. The boot ROM erases each 64 KB sector of the development slot as the data reaches it and programs it page by page; the link's flow control holds the PC meanwhile. At the end it reads the slot back and checks the design's CRC.
+4. Only if the check passes does it BOOT into the slot. Otherwise it reports the error over the link and keeps running the old design.
+
+The `rlink.py` command and the upload record's type are shared with retro-z80 (open point SY7).
+
+### 7.3 The rescue pin
+
+If a new design does not start, or its link has stopped working, the Pi holds the rescue pin (Pi GPIO 4, `accel_io[4]`) low for at least 1 second. A small block that depends on neither the CPU nor the link then does a BOOT from FLASHGOOD, the known-good copy. GPIO 4 is one the Pi pulls up while it boots (it pulls GPIO 0–8 up and 9–27 down), so a Pi that is still starting, about 20 seconds, never looks like a rescue request. The pin is debounced, and ignored for 2 seconds after the FPGA starts, so a Pi still holding it after the restart does not cause a loop.
 
 ## 8. Board connections
 
 | Connection | Use |
 |------------|-----|
-| Accelerator port (28 pins, Raspberry Pi header) | The FT232H USB serial module (spec 14). Remaining pins free |
+| Accelerator port (28 pins, Raspberry Pi header) | The FT232H USB serial module, or a Raspberry Pi Zero 2 W as the link and rescue pin (spec 14, section 2.1). Remaining pins free |
 | HDMI and VGA | Video (spec 4) |
 | Audio jack and internal speaker | Audio (spec 6) |
 | SD card slot | Storage (spec 15) |
@@ -214,20 +258,23 @@ System control registers, in the system area at `0xF00000`. Spec 3 sets the fina
 | Boot ROM, 32 KB | 16 block RAMs (already in the design plan's budget) |
 | Reset control, overlay decode, button debounce, system registers | Estimate 100–200 LUTs |
 | I2C master | Estimate 80–150 LUTs |
+| Flash writer, page buffer, rescue pin (section 7) | Estimate 150–250 LUTs, and the page buffer in distributed RAM |
 
 ## 11. Open points
 
 | # | Item |
 |---|------|
 | SY1 | Measure the FPGA configuration time from the KS3's flash, and whether a faster flash read mode can be set in the bitstream |
-| SY2 | The boot ROM spec: monitor commands, upload protocol (with spec 14), boot file name and format, background colour codes |
-| SY3 | Should a long press of the reset button (e.g. 3 seconds) reset into UPLOAD? |
+| SY2 | The boot ROM spec: the monitor commands, upload protocol, image header and boot file are settled in the shared spec `monitor.md` (agreed with retro-z80). Left for retro68k's own boot ROM spec: its break instruction (planned ILLEGAL, `0x4AFC`), ROM calls (planned TRAP #15, function number in D0), traps, address limits, registers whose reads have side effects, what a program inherits, and the background colour codes (the shared spec's open point M2) |
 | SY4 | Which real-time clock chip the KS3 uses, and its I2C address and register layout |
-| SY5 | The KS3 core file format and flash slot size, and how a core is installed from the SD card |
+| SY5 | Mostly answered by retro-z80 from the Next's sources (section 7.1; not yet tried on a board). Installing from the SD card: `/machines/<dir>/core3.bit` on the KS3 (core2.bit on issue 4), holding C at a hard reset. Still open: which slot the Next's Extra Cores menu writes into (retro-z80's SY14) |
+| SY6 | Settled: the rescue pin starts the known-good copy, FLASHGOOD (section 7.3) |
+| SY7 | Agreed with retro-z80: the shared `monitor.md`, section 6.7 (retro-z80 commit 0f22cfe): TARGET 3 = FPGA design, always into the development slot, checked against the FPGA's IDCODE before anything is written and by its CRC after; `rlink.py flash FILE.bit [--no-boot]`. Copy it into our `monitor.md` once PR #18 has merged |
 
 ## 12. Tests
 
 - **Each reset source** resets the CPU and hardware and sets the right RESETWHY bit.
+- **Flash writer** (simulation, with a SPI flash model): READ, ERASE and PROGRAM; ERASE and PROGRAM outside the development slot refused with DENIED and nothing sent to the flash; a wrong KEY ignored; BOOT drives ICAPE2 with the right WBSTAR. On the board: load a design over the Pi link and boot it; a bad CRC keeps the old one; the rescue pin brings back the known-good copy.
 - **Memory survives:** write a pattern to Chip RAM, reset by each non-power source, check the pattern is still there.
 - **Overlay:** after reset, reads at 0 come from ROM and writes go to RAM; clearing OVERLAY shows the written RAM; DMA always sees RAM.
 - **RESET instruction:** resets the hardware but not the CPU, overlay, watchdog or time counter.

@@ -8,7 +8,7 @@ An Amiga-style 68000 computer on the ZX Spectrum Next KS3 board (Xilinx XC7A35T,
 
 ## Working rules
 
-- Commit and push straight to `main` of `jonsole/retro68k`. No pull requests unless asked.
+- Commit and push straight to `main` of `jonsole/retro-68k`. No pull requests unless asked.
 - Author: `Jon Sole <jon.sole@gmail.com>` (`git -c user.name="Jon Sole" -c user.email="jon.sole@gmail.com" commit ...`).
 - Claude's commits end with a `Co-Authored-By:` trailer (and the session link, if the session gives one). No model names anywhere else in the repo.
 - Check CI (GitHub Actions, `.github/workflows/checks.yml`) after each push. A full run takes about 35–50 minutes.
