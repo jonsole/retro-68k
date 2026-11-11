@@ -31,7 +31,7 @@ One engine moves data for the CPU: copying and filling memory, feeding periphera
 | Register writes | Copper only | Copper, and DMA jobs: block copies and fills into registers |
 | Peripherals | Separate disk DMA | The same engine, through peripheral ports |
 | Priority | BLTPRI ("blitter nasty") for all blits | HIGH bit per job |
-| Line drawing, area fill | Yes | Not in version 1 (open point D3) |
+| Line drawing, area fill | Yes | Lines: the LINE job (section 3.5, version 2), with the engine working out the steps and a clip rectangle. Area fill: not yet (open point D3) |
 
 ## 3. Descriptors
 
@@ -50,15 +50,18 @@ The jobs are shared with retro-z80's DMA engine (its spec 14): the same operatio
 | `+0x18` | VALUE | 31–0 | B's constant when BKIND = VALUE (a fill), and the key colour for a compare mask (MASK = 2) |
 | `+0x1C` | NEXT | 23–0 | Address of the next descriptor; 0 = end of chain |
 
-A WIDTH or HEIGHT of 0 makes the job do nothing; the chain carries on with NEXT. Bits not listed are reserved: write 0.
+A WIDTH or HEIGHT of 0 makes the job do nothing (except HEIGHT in a LINE job, section 3.5); the chain carries on with NEXT. Bits not listed are reserved: write 0.
 
 **CTRL bits:**
 
 | Bits | Name | Meaning |
 |------|------|---------|
-| 2–0 | OP | 0 BLIT, 1 ADD, 2–4 reserved, 5 MIX (on hold), 6 span fill and 7 triangle (reserved for 3D, open point D5). All but 0 and 1 are an error in version 1 |
+| 2–0 | OP | 0 BLIT, 1 ADD, 2 LINE (version 2, section 3.5), 3 reserved for EDGES (retro-z80's wireframe job, its spec 14 section 3.5; not adopted here), 4 reserved, 5 MIX (on hold), 6 span fill and 7 triangle (reserved for 3D, open point D5). All but 0 and 1 are an error in version 1 |
+| 3 | YMAJOR | LINE: the longer axis is y (steps of a row) instead of x |
 | 4 | SAT | ADD: saturate instead of wrapping |
 | 5 | SIGNED | ADD: pixels are two's complement |
+| 6 | XNEG | LINE: x steps to the left |
+| 7 | YNEG | LINE: y steps up (back by CDSTRIDE) |
 | 9–8 | BPP | 0 = 1, 1 = 2, 2 = 4, 3 = 8 bits per pixel |
 | 10 | DESC | Run backwards: from the last pixel of the last row to the first pixel of the first row, for overlapping copies where the destination is after the source. The addresses still give the first pixel |
 | 11 | HIGH | May take the CPU's memory cycles (section 5) |
@@ -145,6 +148,37 @@ Because the stride is separate from the width, the trimmed rows still line up wi
 ### 3.4 MIX: one audio voice
 
 > **On hold.** Stepping through a sample and taking the nearest value sounds poor when mixing at a fixed rate (a metallic buzz when pitched down, off-key aliasing when pitched up). MIX needs proper resampling, for example 8-tap windowed-sinc interpolation with pre-filtered octave copies, before it is worth building; and the audio unit (spec 6) now plays four channels with interpolation by itself. OP 5 stops the channel with an error in version 1. The previous design is kept in the history of this file.
+
+### 3.5 LINE: one straight line (version 2)
+
+> **Version 2: specified, not built yet.** Shared with retro-z80 (its spec 14, section 3.4, decided 30 October 2026); keep the two the same. Until it is built, OP 2 is an error.
+
+A LINE job draws a straight line of pixels from a first pixel, the Amiga way: software gives the direction (the octant) and the two lengths, and the engine steps along the line. Unlike the Amiga, the engine works out the Bresenham terms itself.
+
+**The job's fields:**
+
+| Field | In a LINE job |
+|-------|---------------|
+| CTRL | OP = 2; BPP; YMAJOR, XNEG, YNEG (the octant); MINTERM; HIGH and IRQ as usual. SAT, SIGNED and BKIND are ignored. DESC, MASK and DKIND must be 0 |
+| DPT, DBIT | The first pixel's address |
+| SIZE | WIDTH = the number of pixels: the longer length + 1, 1 to 32,768. HEIGHT = the shorter length, 0 to WIDTH − 1 (0 is a straight horizontal or vertical line, not an empty job) |
+| STRIDE | CDSTRIDE = the row stride; ABSTRIDE is ignored |
+| APT | Bits 15–0: LX, the first pixel's x, signed. Used only for the clip test |
+| BPT | Bits 15–0: LY, the first pixel's y, signed. Used only for the clip test |
+| VALUE | Bits 7–0: the colour (B, its low BPP bits). Bits 31–16: the pattern (A) |
+| NEXT | As usual |
+
+**Stepping.** With M = WIDTH − 1 and N = HEIGHT, an error term E starts at 2N − M. After each pixel but the last: if E > 0, step the shorter axis too and add 2(N − M) to E, else add 2N to E; then step the longer axis. (A tie goes straight.) A step in x is one pixel left or right (XNEG); a step in y is CDSTRIDE forwards, or back with YNEG. The engine also steps LX and LY, for the clip test.
+
+**Each pixel goes through the minterm**, as BLIT (section 3.1): B = the colour, C = the old pixel, and A = the pattern bit, widened to the pixel. The pattern starts at VALUE bit 31 for the first pixel and rotates one bit per pixel, whether the pixel is drawn or clipped; it starts again at bit 31 for each job. So `0xCC` draws a solid line, `0x66` an XOR line (drawn twice, it disappears), and `0xCA` with a pattern a dashed line over the background. A pattern of all ones is solid.
+
+**The clip rectangle** (section 8, CLIPX and CLIPY) is one for all channels. A pixel whose (LX, LY) is outside it is neither read nor written and costs no memory cycle, so software only needs to drop lines wholly off the screen. DPT's address is checked (section 4) only for pixels drawn, so a line may start off the screen. After reset the rectangle is the whole range, −32,768 to 32,767.
+
+**Memory cycles:** one read and one write per pixel. A pixel costs no memory cycle when it is clipped, or when its pattern bit A is 0 and MINTERM's low nibble is `0xA` (D = C, so the pixel is left alone). At 8 bpp the read is also skipped when the minterm doesn't use C for that pixel's A (the high nibble for A = 1, the low nibble for A = 0).
+
+**Errors:** besides the usual ones, DESC, MASK or DKIND not 0, WIDTH over 32,768, or HEIGHT over WIDTH − 1 stop the channel.
+
+**Not yet:** merging pixels that share a byte into one write, the Amiga's one-pixel-per-row mode for area fill, and starting part-way through a pixel.
 
 ## 4. Where data can come from and go to
 
@@ -263,6 +297,8 @@ The job registers keep the values of the last job loaded or written: the engine'
 |--------|------|------|---------|
 | `0x3F0` | DMXINT | CH 3–0 | A channel's interrupt is pending (a job with IRQ finished, or an error); write 1 to clear. A bit that comes due in the same clock as the write stays set, so no interrupt is lost (as retro-z80) |
 | `0x3F4` | DMXINTEN | CH 3–0 | Interrupt enables per channel |
+| `0x3F8` | CLIPX | XMIN (31–16), XMAX (15–0) | LINE's clip rectangle (section 3.5), version 2: x from XMIN to XMAX, signed and inclusive. After reset XMIN = `0x8000`, XMAX = `0x7FFF` |
+| `0x3FC` | CLIPY | YMIN (31–16), YMAX (15–0) | The same for y |
 
 **Descriptor RAM:** 2 KB at `0xE06000`–`0xE067FF`, room for 64 descriptors (or small buffers). One block RAM. Its contents are undefined after reset.
 
@@ -306,7 +342,7 @@ Software decides, but a sensible default:
 |---|------|
 | D1 | Check the engine fits and meets timing at 100 MHz |
 | D2 | Measure the speed figures of section 7 in simulation; retro-z80's board measurements (section 7) suggest they are 25–35% optimistic |
-| D3 | Line drawing and area fill (Amiga blitter features), and scaling or rotating blits: version 2. retro-z80 plans a line job next (its spec 15, G1); the starting sketch is OP 2 LINE, with software working out the octant and Bresenham terms, the pixel going through the minterm, and a per-pixel clip rectangle. Nothing is decided. The line job and the triangle job (D5) are separate jobs with their own layouts, sharing the engine's address units, minterm and memory access (agreed with retro-z80, 30 October 2026) |
+| D3 | Line drawing: LINE (section 3.5) is specified for version 2, shared with retro-z80 (its spec 14, section 3.4, 30 October 2026). Still open: area fill, and scaling or rotating blits. The line job and the triangle job (D5) are separate jobs with their own layouts, sharing the engine's address units, minterm and memory access (agreed with retro-z80, 30 October 2026) |
 | D4 | MIX (section 3.4): on hold until it has proper resampling |
 | D5 | OP 6 span fill and OP 7 triangle, for flat-shaded 3D: the codes are agreed with retro-z80 (28 October 2026, its D6), and neither project gives them another meaning without asking the other. Their layouts come with a 3D design |
 | D6 | The mask shares B's stride (section 3.3), to keep the descriptor at eight long words: at 8 bpp seven eighths of a mask sheet with B's row length is unused. As retro-z80's D13 |
@@ -323,4 +359,5 @@ Software decides, but a sensible default:
 - **Errors:** a bad address (including the system area and past the end of a 2 MB board's RAM), a reserved OP, MASK = 3 and a bad combination stop only that channel, set ERR and CHERR, and raise its interrupt.
 - **Registers:** a block copy into a layer's registers gives exactly the same result as CPU writes; a copy into CHCTRL that starts another channel works; register reads into memory; a palette written by a job changes each entry whole; a CPU register access is never delayed by the engine.
 - **Ports:** a USB serial transfer each way, paced by the FIFOs (with the FT232H model in `sim/`).
+- **LINE** (when built): all eight octants, every BPP, lines of 1 pixel, horizontal and vertical lines, patterns, XOR twice restoring the screen, lines partly and wholly outside the clip rectangle and starting off the screen; compare with a Python reference model.
 - **Speed:** the figures in section 7.
