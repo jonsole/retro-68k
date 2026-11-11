@@ -62,9 +62,8 @@ module dmx #(
     output wire        p1_txpush,
     output wire [7:0]  p_txd,          // the byte to send, for either
 
-    // The scheduler: the running job's HIGH bit and its channel's CPUSHARE (spec 11, section 5)
+    // The scheduler: the running job's HIGH bit (spec 11, section 5)
     output wire        blt_high,
-    output wire [1:0]  blt_share,
 
     // Timers starting channels (spec 12): as a START written to CHCTRL
     input  wire [3:0]  tmr_start,
@@ -92,7 +91,6 @@ module dmx #(
     endfunction
 
     // ================================================================ channel registers
-    reg  [1:0]  cpushare [0:3];
     reg  [3:0]  pause;
     reg  [3:0]  dint, dinten;
     wire [3:0]  busy, done, err, irq_set;
@@ -172,7 +170,7 @@ module dmx #(
             else if (sel_inten) reg_q <= {28'd0, dinten};
             else case (rri)
                 4'd8:  reg_q <= {8'd0, chdesc_r};
-                4'd9:  reg_q <= {26'd0, cpushare[rch], pause[rch], 3'd0};
+                4'd9:  reg_q <= {28'd0, pause[rch], 3'd0};
                 4'd10: reg_q <= {28'd0, busy[rch] && pause[rch], err[rch], done[rch], busy[rch]};
                 4'd11: reg_q <= {8'd0, ea_q[24*rch +: 24]};
                 default: if (!rri[3]) reg_q <= jr[{rch, rri[2:0]}];
@@ -180,19 +178,14 @@ module dmx #(
         end
     end
 
-    always @(posedge clk) begin : chregs
-        integer i;
+    always @(posedge clk) begin
         if (rst) begin
             pause <= 4'd0; dint <= 4'd0; dinten <= 4'd0;
-            for (i = 0; i < 4; i = i + 1) cpushare[i] <= 2'd1;
         end else begin
             // a flag due in the clock the CPU clears others is kept
             dint <= (dint & ~((rb_wr && sel_int && rb_be[0]) ? rb_wdata[3:0] : 4'd0)) | irq_set;
             if (rb_wr && sel_inten && rb_be[0]) dinten <= rb_wdata[3:0];
-            if (wr0 && rri == 4'd9) begin
-                pause[rch]    <= rb_wdata[3];
-                cpushare[rch] <= rb_wdata[5:4];
-            end
+            if (wr0 && rri == 4'd9) pause[rch] <= rb_wdata[3];
         end
     end
 
@@ -209,7 +202,10 @@ module dmx #(
     reg  [2:0]  j_bbit, j_dbit, j_abit;
     reg  [15:0] j_width, j_height, j_bstr, j_dstr;
     reg  [31:0] j_val;
-    always @(posedge clk) if (su_v) case (su_i)
+    // HIGH goes to the scheduler, which sees it while the engine loads its
+    // first descriptor, before any job is decoded: so it is reset (X there
+    // would spread through the scheduler's rules in simulation)
+    always @(posedge clk) if (rst) j_high <= 1'b0; else if (su_v) case (su_i)
         3'd0: begin j_op <= jv[2:0]; j_sat <= jv[4]; j_sgn <= jv[5]; j_bpp <= jv[9:8]; j_desc <= jv[10];
                     j_high <= jv[11]; j_irq <= jv[12]; j_bk <= jv[14:13]; j_dk <= jv[16:15];
                     j_mask <= jv[18:17]; j_mt <= jv[31:24]; end
@@ -229,7 +225,6 @@ module dmx #(
                         || ((j_bport || j_dport) && (j_bk == 2'd3 || (j_bport ? j_b : j_d) > 24'd1));
 
     assign blt_high  = j_high;
-    assign blt_share = cpushare[cur];
 
     // The running port job's port (its BPT or DPT: 0 or 1)
     wire        psel  = j_bport ? j_b[0] : j_d[0];

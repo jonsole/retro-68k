@@ -19,7 +19,7 @@ Sprites are small images drawn over (or between) the layers at any position, wit
 | Depth | Per sprite: in front of all layers, between any two (in PRIO order), or behind all |
 | Collisions | Sprite–sprite and sprite–layer, per pixel, latched (as the Amiga's CLXDAT) |
 | Data registers | A 32-word FIFO per sprite, streaming: lines of any length pass through it |
-| Fetch | Just in time, deadline first, shared with the bitplanes (spec 4, section 5; spec 5, section 6). Each line's words are fetched during that line, from its start (the horizontal blank), as soon as the sprite's FIFO has room and a memory cycle is free |
+| Fetch | Just in time, the sprite due first first. Shared with the bitplanes, which go first unless a sprite's fetch is urgent (spec 4, section 5; spec 5, section 6). Each line's words are fetched during that line, from its start (the horizontal blank), as soon as the sprite's FIFO has room and a memory cycle is free |
 | Starting | A write to SPRxCTL starts a sprite; the vertical blank stops every sprite. The other registers act on a running sprite from the next line |
 
 ## 2. Comparison with the Amiga (OCS/ECS)
@@ -35,7 +35,7 @@ Sprites are small images drawn over (or between) the layers at any position, wit
 | Colours | 3 + transparent; 15 with two attached sprites | 3, 15 or 255 + transparent, every sprite |
 | Pixel format | Two bitplanes | Chunky: 2, 4 or 8 bits per pixel, first pixel in the high bits |
 | Data registers | SPRxDATA, SPRxDATB: one line of 16 pixels | A 32-word FIFO, streaming: lines of any length pass through it |
-| Fetch | Two words per sprite per line, in fixed slots in the horizontal blank | Just in time, deadline first; early when cycles are free |
+| Fetch | Two words per sprite per line, in fixed slots in the horizontal blank | Just in time, after the layers unless urgent; early when cycles are free |
 | Manual mode | Write SPRxDATA/B with DMA off | Push words into SPRxDAT with the sprite's DMA off |
 | Priority | Fixed in pairs against the playfields | Per sprite, any depth among the layers |
 | Scaling | None | Fractional, 16× bigger to 1/16×, across and down separately |
@@ -116,14 +116,14 @@ In direct-colour mode (VIDCON.DIRECT, spec 4, section 4.9) sprites are drawn in 
 
 Each sprite has a **FIFO of 32 words**, its data registers. The DMA pushes the image's words in at the back; the sprite takes them from the front as it is drawn, a line's worth per screen line (⌈source width × BPP ÷ 16⌉ words). The FIFO streams: a line can be longer than the FIFO, as long as the DMA keeps it from running dry.
 
-- **Fetching within the line.** A line's words are fetched during that line, from its start: never ahead into the next line, since the next line's settings are not known until it starts. The DMA pushes the line's words whenever the FIFO has room, up to 30 words ahead of the beam (it keeps two of the 32 places for words still on their way). Fetching becomes urgent only when the FIFO is about to run out: then the sprite takes part in the deadline-first order with the layers, and may take the CPU's cycle (spec 5, section 6).
+- **Fetching within the line.** A line's words are fetched during that line, from its start: never ahead into the next line, since the next line's settings are not known until it starts. The DMA pushes the line's words whenever the FIFO has room, up to 30 words ahead of the beam (it keeps two of the 32 places for words still on their way). Fetching becomes urgent only when the FIFO is about to run out: then the sprite goes ahead of everything but an urgent layer fetch, and may take the CPU's cycle (spec 5, section 6). Otherwise the layers go first: the sprites get the display's cycles the layers leave, and spare cycles after them.
 - **The lead** is the time from the line's start to the sprite's first pixel: at least 16 pixels (HSTART 16), and the whole horizontal blank, 144 pixels (5.3 µs), for a sprite at the picture's left edge.
 - **Manual mode.** With a sprite's DMA off (SPRDMA), the CPU or copper pushes the image's words into its FIFO by writing SPRxDAT. The sprite shows as its window and CTL say, taking a line's words from the FIFO on each line it shows. If the FIFO is empty when a word is needed, the sprite waits for it: it is transparent until a word is written, and the rest of the line follows from there. SPRUNDER is not set in manual mode. Push the frame's words after the CTL write: the FIFO takes a moment to empty (about 20 clocks), and words pushed meanwhile are dropped. A sprite in manual mode should not be shrunk across (XSTEP above `0x0800`): words would be skipped before they are written.
 - **Underrun.** If the DMA cannot keep a sprite's FIFO filled (section 5), VIDSTAT.SPRUNDER (bit 7) is set, and the sprite shows nothing more until its CTL is written again: its words would no longer line up with its lines. SPRUNDER can raise the VIDERR interrupt like OVERRUN.
 
 ## 5. Memory budget
 
-Sprites and layers share one budget, ordered by deadline. The display's own memory cycles (1 and 3 of each slot, spec 5) give about **12 words per 16 screen pixels** for certain; cycles the CPU, audio and copper leave free give more.
+Sprites and layers share one budget. The layers go first, and only an urgent sprite fetch goes ahead of a layer's (spec 5, section 6.3), so sprites live on what the layers leave, plus their FIFOs' lead. The display's own memory cycles (1 and 3 of each slot, spec 5) give about **12 words per 16 screen pixels** for certain; cycles the CPU, audio and copper leave free give more.
 
 - A **layer** needs, per 16 source pixels, 1 word per plane (planar) or b words at b bpp (chunky); at 2× scale across, half that per 16 screen pixels.
 - A **sprite** needs BPP words per 16 source pixels while the beam is over it (2, 4 or 8): BPP × XSTEP ÷ 2048 words per 16 screen pixels. Twice as big across (`0x0400`), half that; half size across (`0x1000`), twice.

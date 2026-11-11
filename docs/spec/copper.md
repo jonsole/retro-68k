@@ -149,16 +149,17 @@ Macros `CCALL address`, `CRET`.
 - **Beam position:** the copper compares against the beam position seen on the memory side (spec 4, section 3.1), a few clocks behind the pixel clock. A WAIT ends within about one pixel of its position.
 - **MOVE after a WAIT:** the next instruction is already fetched, so the write happens 10–20 ns after the WAIT ends. Writes that follow need their own fetches.
 - **Every instruction is one fetch** (two words), the new ones included; an ALU instruction takes one extra clock. JUMP, CALL, RET and a SKIP or SKIPC that skips throw the prefetched instruction away, so the instruction after them is fetched fresh. A loop therefore costs a fetch for every instruction in it, every pass: unrolled MOVEs are faster, loops are shorter.
-- **Fetches:** each instruction is two 16-bit words. At PRI 0 the copper's channel is best effort: it gets cycle 4 and any other cycle nobody else wants (spec 5, section 6), which is usually plenty but not guaranteed on a busy screen. At PRI 1 cycle 4 is its own: at least 20 MB/s, one instruction every 200 ns or better (about 5 pixels at 576p), and faster when the memory is quiet: in simulation, with one word fetched at a time, one instruction every 140 ns (about 4 pixels) in the vertical blank.
+- **Fetches:** each instruction is two 16-bit words. At PRI 0 the copper's channel is best effort: it gets cycle 4 and any other cycle its owners leave, ahead of the CPU and the DMA engine but after the display and audio (spec 5, section 6), which is usually plenty but not guaranteed on a busy screen. At PRI 1 it goes first for every cycle its owners leave, so cycle 4 (owned by nobody) is in effect its own: at least 20 MB/s, one instruction every 200 ns or better (about 5 pixels at 576p), and faster when the memory is quiet: in simulation, with one word fetched at a time, one instruction every 140 ns (about 4 pixels) in the vertical blank.
 - **Priority (COPCON.PRI):** a list that must make many writes quickly can raise the copper's priority:
 
   | PRI | The copper gets |
   |-----|-----------------|
-  | 0, normal | Cycle 4 and the cycles nobody else wants, after audio (the default) |
-  | 1, high | Cycle 4 as its own, and first place in the free order: ahead of audio, the DMA engine, and display fetches that are not urgent |
-  | 2, nasty | As 1, and it may also take the CPU's cycle 0, like the Amiga's blitter-nasty mode; the CPU's access then waits one slot |
+  | 0, normal | Cycle 4 and the cycles their owners leave, after the display and audio, ahead of the CPU and the DMA engine (the default) |
+  | 1, high | A **high** request: first place among the cycles their owners leave, ahead of the display fetches that are not urgent, audio and the DMA engine. Cycle 4, owned by nobody, is in effect its own. The display keeps its own cycles 1 and 3 |
+  | 2, nasty | As 1, and while it asks it owns cycle 0 in place of the CPU, like the Amiga's blitter-nasty mode; the CPU's accesses then wait for cycles the copper leaves |
+  | 3 | As 1 |
 
-  An urgent display fetch (spec 4, section 5.6) still comes first at every level, so raising the copper never spoils the picture. PRI matters only while the copper has an instruction to fetch: while it waits, it takes nothing.
+  An urgent display fetch (spec 4, section 5.6) still comes first at every level, so raising the copper never spoils the picture. PRI matters only while the copper has an instruction to fetch: while it waits, it takes nothing. A nasty copper owns cycle 0 whatever the slot plan (MEMSLOT0) says; the plan can also give the copper other cycles (spec 5, section 8.1).
 - **When writes take effect:** as for the CPU (spec 4, section 5.4): the palette at once (a colour change shows within about 1–2 pixels of the WAIT position), layer settings from the next line, BPLxPT, BPLSTRIDE and BPLxDAT at once.
 - **Register bus:** the copper and the CPU share the register bus; a CPU access already on the bus goes first, so a copper write may wait one clock (10 ns).
 
@@ -168,7 +169,7 @@ Offsets in the custom register block at `0xE00000`.
 
 | Offset | Name | Access | Bits | Description |
 |--------|------|--------|------|-------------|
-| `0x700` | COPCON | RW | EN (0), IRQEN (1), RESUME (2), STKKEEP (3), PRI (5–4) | Copper on (DMACON.DMAEN and COPEN must also be set); COPINT raises the interrupt; the vertical blank saves list 2's place in COP2LC (section 6.1); the vertical blank keeps the stack (section 4.4); priority for memory cycles (section 5): 0 normal, 1 high, 2 nasty |
+| `0x700` | COPCON | RW | EN (0), IRQEN (1), RESUME (2), STKKEEP (3), PRI (5–4) | Copper on (DMACON.DMAEN and COPEN must also be set); COPINT raises the interrupt; the vertical blank saves list 2's place in COP2LC (section 6.1); the vertical blank keeps the stack (section 4.4); priority for memory cycles (section 5): 0 normal, 1 high, 2 nasty (3 acts as 1) |
 | `0x704` | COP1LC | RW | 22–2 | First list: restarted at every vertical blank |
 | `0x708` | COP2LC | RW | 22–2 | Second list: runs when COPJMP2 is written. The vertical blank reloads the copper from COP1LC only. COP2LC is changed by the hardware only with COPCON.RESUME set (section 6.1) |
 | `0x70C` | COPJMP1 | W | – | Strobe: restart at COP1LC now |

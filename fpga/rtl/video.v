@@ -36,8 +36,11 @@ module video (
     output wire [10:0] beam_v,         // the beam position, memory side (for the copper)
     output wire [10:0] beam_h,
 
-    // DMACON, and the display fetch port of the SRAM controller
+    // DMACON, the memory slot plan (MEMSLOT0-4: slot n in bits 8n+7..8n,
+    // its owners in 6..0 and its lock in 7; spec 5, section 8.1), and the
+    // display fetch port of the SRAM controller
     output reg  [15:0] dmacon,
+    output reg  [39:0] memplan,
     output wire        disp_req,
     output wire        disp_urgent,
     output wire [9:0]  disp_deadline,
@@ -146,6 +149,7 @@ module video (
             end
             vb_s <= 2'b00; ln_s <= 2'b00;
             dmacon <= 16'd0;
+            memplan <= 40'h00_03_04_03_10;   // the default plan: CPU; layers, sprites; audio; layers, sprites; none
         end else begin
             for (i = 0; i < 3; i = i + 1) begin
                 ov_s[i] <= {ov_s[i][0], ov_t[i]};
@@ -184,6 +188,11 @@ module video (
                         if (rb_wdata[15]) dmacon <= dmacon | (rb_wdata[14:0] & 15'h03EF);
                         else              dmacon <= dmacon & ~(rb_wdata[14:0] & 15'h03EF);
                     end
+                    `RM_MEMSLOT0: if (rb_be[0]) memplan[7:0]   <= rb_wdata[7:0];
+                    `RM_MEMSLOT1: if (rb_be[0]) memplan[15:8]  <= rb_wdata[7:0];
+                    `RM_MEMSLOT2: if (rb_be[0]) memplan[23:16] <= rb_wdata[7:0];
+                    `RM_MEMSLOT3: if (rb_be[0]) memplan[31:24] <= rb_wdata[7:0];
+                    `RM_MEMSLOT4: if (rb_be[0]) memplan[39:32] <= rb_wdata[7:0];
                     default: ;
                 endcase
             end
@@ -208,6 +217,11 @@ module video (
             `RM_PRIO:       reg_q <= {26'd0, prio};
             `RM_VIDSIZE:    reg_q <= {5'd0, VVIS, 5'd0, HVIS};
             `RM_DMACON:     reg_q <= {16'd0, dmacon};
+            `RM_MEMSLOT0:   reg_q <= {24'd0, memplan[7:0]};
+            `RM_MEMSLOT1:   reg_q <= {24'd0, memplan[15:8]};
+            `RM_MEMSLOT2:   reg_q <= {24'd0, memplan[23:16]};
+            `RM_MEMSLOT3:   reg_q <= {24'd0, memplan[31:24]};
+            `RM_MEMSLOT4:   reg_q <= {24'd0, memplan[39:32]};
             default: ;
         endcase
     end

@@ -16,7 +16,7 @@
 
 BUF         equ     $090000             ; a block
 COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)
-CHGO        equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)
+CHGO        equ     DMX_CHCTRL_RUN_M
 SLOW        equ     SDCON_EN_M|(125<<SDCON_CLKDIV_B)        ; 400 kHz
 FAST        equ     SDCON_EN_M|(2<<SDCON_CLKDIV_B)          ; 25 MHz
 

@@ -126,7 +126,7 @@ readblk:    moveq   #17,d1
             move.l  #BUF,DMX_DPT(a0)
             move.l  #(1<<16)|512,DMX_SIZE(a0)                     ; 1 row of 512 bytes
             move.l  #0,DMX_NEXT(a0)
-            move.l  #DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX_CHCTRL(a0)
+            move.l  #DMX_CHCTRL_RUN_M,DMX_CHCTRL(a0)
 .w:         btst    #DMX_CHSTAT_BUSY_B,DMX_CHSTAT+3(a0)
             bne.s   .w
             moveq   #-1,d0              ; the 2 check bytes

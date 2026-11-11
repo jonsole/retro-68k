@@ -118,6 +118,101 @@
 #define DMACON_DMAEN_MASK                  0x200u
 #define DMACON_SETCLR_SHIFT                15
 #define DMACON_SETCLR_MASK                 0x8000u
+/* MEMSLOT0: RW, spec 5/8.1 */
+#define MEMSLOT0_OFS                       0x98u
+#define MEMSLOT0                           HW_REG32(CUSTOM_BASE + MEMSLOT0_OFS)
+#define MEMSLOT0_BPL_SHIFT                 0
+#define MEMSLOT0_BPL_MASK                  0x1u
+#define MEMSLOT0_SPR_SHIFT                 1
+#define MEMSLOT0_SPR_MASK                  0x2u
+#define MEMSLOT0_AUD_SHIFT                 2
+#define MEMSLOT0_AUD_MASK                  0x4u
+#define MEMSLOT0_COP_SHIFT                 3
+#define MEMSLOT0_COP_MASK                  0x8u
+#define MEMSLOT0_CPU_SHIFT                 4
+#define MEMSLOT0_CPU_MASK                  0x10u
+#define MEMSLOT0_BLT_SHIFT                 5
+#define MEMSLOT0_BLT_MASK                  0x20u
+#define MEMSLOT0_PORT_SHIFT                6
+#define MEMSLOT0_PORT_MASK                 0x40u
+#define MEMSLOT0_LOCK_SHIFT                7
+#define MEMSLOT0_LOCK_MASK                 0x80u
+/* MEMSLOT1: RW, spec 5/8.1 */
+#define MEMSLOT1_OFS                       0x9Cu
+#define MEMSLOT1                           HW_REG32(CUSTOM_BASE + MEMSLOT1_OFS)
+#define MEMSLOT1_BPL_SHIFT                 0
+#define MEMSLOT1_BPL_MASK                  0x1u
+#define MEMSLOT1_SPR_SHIFT                 1
+#define MEMSLOT1_SPR_MASK                  0x2u
+#define MEMSLOT1_AUD_SHIFT                 2
+#define MEMSLOT1_AUD_MASK                  0x4u
+#define MEMSLOT1_COP_SHIFT                 3
+#define MEMSLOT1_COP_MASK                  0x8u
+#define MEMSLOT1_CPU_SHIFT                 4
+#define MEMSLOT1_CPU_MASK                  0x10u
+#define MEMSLOT1_BLT_SHIFT                 5
+#define MEMSLOT1_BLT_MASK                  0x20u
+#define MEMSLOT1_PORT_SHIFT                6
+#define MEMSLOT1_PORT_MASK                 0x40u
+#define MEMSLOT1_LOCK_SHIFT                7
+#define MEMSLOT1_LOCK_MASK                 0x80u
+/* MEMSLOT2: RW, spec 5/8.1 */
+#define MEMSLOT2_OFS                       0xA0u
+#define MEMSLOT2                           HW_REG32(CUSTOM_BASE + MEMSLOT2_OFS)
+#define MEMSLOT2_BPL_SHIFT                 0
+#define MEMSLOT2_BPL_MASK                  0x1u
+#define MEMSLOT2_SPR_SHIFT                 1
+#define MEMSLOT2_SPR_MASK                  0x2u
+#define MEMSLOT2_AUD_SHIFT                 2
+#define MEMSLOT2_AUD_MASK                  0x4u
+#define MEMSLOT2_COP_SHIFT                 3
+#define MEMSLOT2_COP_MASK                  0x8u
+#define MEMSLOT2_CPU_SHIFT                 4
+#define MEMSLOT2_CPU_MASK                  0x10u
+#define MEMSLOT2_BLT_SHIFT                 5
+#define MEMSLOT2_BLT_MASK                  0x20u
+#define MEMSLOT2_PORT_SHIFT                6
+#define MEMSLOT2_PORT_MASK                 0x40u
+#define MEMSLOT2_LOCK_SHIFT                7
+#define MEMSLOT2_LOCK_MASK                 0x80u
+/* MEMSLOT3: RW, spec 5/8.1 */
+#define MEMSLOT3_OFS                       0xA4u
+#define MEMSLOT3                           HW_REG32(CUSTOM_BASE + MEMSLOT3_OFS)
+#define MEMSLOT3_BPL_SHIFT                 0
+#define MEMSLOT3_BPL_MASK                  0x1u
+#define MEMSLOT3_SPR_SHIFT                 1
+#define MEMSLOT3_SPR_MASK                  0x2u
+#define MEMSLOT3_AUD_SHIFT                 2
+#define MEMSLOT3_AUD_MASK                  0x4u
+#define MEMSLOT3_COP_SHIFT                 3
+#define MEMSLOT3_COP_MASK                  0x8u
+#define MEMSLOT3_CPU_SHIFT                 4
+#define MEMSLOT3_CPU_MASK                  0x10u
+#define MEMSLOT3_BLT_SHIFT                 5
+#define MEMSLOT3_BLT_MASK                  0x20u
+#define MEMSLOT3_PORT_SHIFT                6
+#define MEMSLOT3_PORT_MASK                 0x40u
+#define MEMSLOT3_LOCK_SHIFT                7
+#define MEMSLOT3_LOCK_MASK                 0x80u
+/* MEMSLOT4: RW, spec 5/8.1 */
+#define MEMSLOT4_OFS                       0xA8u
+#define MEMSLOT4                           HW_REG32(CUSTOM_BASE + MEMSLOT4_OFS)
+#define MEMSLOT4_BPL_SHIFT                 0
+#define MEMSLOT4_BPL_MASK                  0x1u
+#define MEMSLOT4_SPR_SHIFT                 1
+#define MEMSLOT4_SPR_MASK                  0x2u
+#define MEMSLOT4_AUD_SHIFT                 2
+#define MEMSLOT4_AUD_MASK                  0x4u
+#define MEMSLOT4_COP_SHIFT                 3
+#define MEMSLOT4_COP_MASK                  0x8u
+#define MEMSLOT4_CPU_SHIFT                 4
+#define MEMSLOT4_CPU_MASK                  0x10u
+#define MEMSLOT4_BLT_SHIFT                 5
+#define MEMSLOT4_BLT_MASK                  0x20u
+#define MEMSLOT4_PORT_SHIFT                6
+#define MEMSLOT4_PORT_MASK                 0x40u
+#define MEMSLOT4_LOCK_SHIFT                7
+#define MEMSLOT4_LOCK_MASK                 0x80u
 /* DMXINT: W1C, spec 11/8 */
 #define DMXINT_OFS                         0x3F0u
 #define DMXINT                             HW_REG32(CUSTOM_BASE + DMXINT_OFS)
@@ -440,8 +535,6 @@
 #define DMX_CHCTRL_STOP_MASK               0x4u
 #define DMX_CHCTRL_PAUSE_SHIFT             3
 #define DMX_CHCTRL_PAUSE_MASK              0x8u
-#define DMX_CHCTRL_CPUSHARE_SHIFT          4
-#define DMX_CHCTRL_CPUSHARE_MASK           0x30u
 #define DMX_CHSTAT_OFS                     0x28u
 #define DMX_CHSTAT(n)                      HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_CHSTAT_OFS)
 #define DMX_CHSTAT_BUSY_SHIFT              0

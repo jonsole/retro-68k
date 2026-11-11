@@ -191,7 +191,21 @@ A 68000 bus cycle takes 4 CPU clocks, 200 ns: two slots. The CPU needs at most o
 
 So the CPU normally runs **with no wait states** from Chip RAM, ROM and registers alike. The display, and later the audio and normal DMA, use their own cycles and any the CPU leaves. As on the Amiga, a bitplane fetch that would otherwise be late takes the CPU's cycle 0 (and a copper set to "nasty" priority may too); that Chip RAM access then waits one slot, 2 CPU clocks. Screens well inside the budget almost never do this; heavy ones slow the CPU a little on the lines that need it. ROM and register accesses never wait.
 
-Later blocks add one more case: a copper set to "nasty" priority (COPCON.PRI = 2) may take cycle 0 too. Each taken cycle costs the CPU one slot (2 clocks).
+Software can add more: a copper set to "nasty" priority (COPCON.PRI = 2), or a DMA engine job with HIGH set, owns cycle 0 while it asks, and the CPU then waits for the cycles it leaves. A long HIGH job can hold the CPU off for as long as it runs, interrupts included.
+
+### The Slot Plan
+
+Who owns each of the 5 cycles is set by five registers, **MEMSLOT0–MEMSLOT4** (`$E00098`–`$E000A8`), one per cycle. Bits 0–6 of each are its owners, one bit per user: BPL (layers), SPR (sprites), AUD, COP, CPU, BLT (the DMA engine) and PORT. Bit 7, LOCK, stops an urgent display fetch from taking that cycle. After reset they hold the plan above: `$10` (CPU), `$03` (layers and sprites), `$04` (audio), `$03`, `$00`.
+
+A cycle whose owners don't want it goes to whoever does, so owning a cycle costs nobody bandwidth, only their place in the queue. Users without a cycle of their own take turns in a fixed order: high-priority requests first (a copper at PRI 1 or 2, a HIGH DMA engine job), then the layers, sprites, audio, copper, CPU, DMA engine and port.
+
+```asm
+            move.b  #MEMSLOT0_BLT_M,MEMSLOT0+3(a4)      ; a big blit: the DMA engine owns cycle 0
+            ; ... the blit runs; the CPU gets only the cycles it leaves ...
+            move.b  #MEMSLOT0_CPU_M,MEMSLOT0+3(a4)      ; the CPU back
+```
+
+Keep the display's two cycles (1 and 3), or a heavy screen runs short, and leave LOCK clear: the 68000 waits for its data, so nothing here needs a locked cycle.
 
 ### Bandwidth
 
