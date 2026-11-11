@@ -3,6 +3,7 @@
 | Tool | What it does |
 |------|--------------|
 | `vasm/vasm.tar.gz` | The vasm assembler's source archive, unmodified, as released by Volker Barthelmann (http://sun.hasenbraten.de/vasm/). CI builds the assembler from it, so it does not depend on that site being up. Its licence allows the unmodified archive to be redistributed for non-commercial use |
+| `rlink.py` | The PC side of the USB link, shared with retro-z80 (the same file in both repos; spec `monitor.md`, section 8): uploads programs and image files, makes image files, sends the control commands RESET, BREAK and UPLOAD, and is a terminal. It SLIP-escapes everything it sends (spec 14, section 3). Needs Python 3.8+ and `pyserial` |
 | `regmap.py` | Reads `fpga/regmap.def` (every hardware register and field), checks it, checks it against `docs/spec/registers.md`, and writes `firmware/include/hw.inc` (vasm), `firmware/include/hw.h` (C) and `fpga/rtl/regmap.vh` (Verilog) |
 
 ## Register map

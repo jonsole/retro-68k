@@ -8,7 +8,8 @@ Writes OUTDIR/ram.hex (Chip RAM at the start, $readmemh of 16-bit words)
 and OUTDIR/jobs.json (each channel's jobs in order, for dmodel.py).
 
 Each channel works in its own 256 KB of Chip RAM (sources in the first
-half, destinations in the second, except the overlapping copies), so the
+half: B in the first 64 KB, mask images in the next; destinations in
+the second half, except the overlapping copies), so the
 channels can run in any order. The control table at 0x0F0000 tells
 dtest.s what to start (keep in step with dtest.s):
   +0x00  channel 0's first descriptor (Chip RAM)
@@ -42,9 +43,12 @@ def place(rng, lo, size, rows, stride, rowbytes):
     return rng.randrange(a_lo, a_hi)
 
 
+MINTERMS = [0xCC, 0xCC, 0xCA, 0xEE, 0x88, 0x66, 0x22, 0x55, 0x00, 0xFF, 0x0A]
+
+
 def make_job(rng, area, kind=None):
-    ops = ["COPY", "FILL", "KEYCOPY", "LOGIC", "ADD"]
-    op = kind or rng.choice(ops + ["COPY"])
+    """A random job. kind: None, 'KEY' (cookie-cut with a key colour),
+    'MASK' (a 1 bpp mask image), 'ADD' or 'C' (a minterm that reads C)."""
     b = rng.choice([1, 2, 4, 8, 8])
     ppb = 8 // b
     if b == 8 and rng.random() < 0.25:
@@ -52,31 +56,36 @@ def make_job(rng, area, kind=None):
     else:
         w = rng.randrange(1, 90 if b == 8 else 200)
         h = rng.randrange(1, 9)
-    sbit = rng.randrange(ppb) if b < 8 else 0
+    bbit = rng.randrange(ppb) if b < 8 else 0
     dbit = rng.randrange(ppb) if b < 8 else 0
-    srow = (sbit * b + w * b + 7) // 8
+    abit = rng.randrange(8)
+    brow = (bbit * b + w * b + 7) // 8
     drow = (dbit * b + w * b + 7) // 8
-    j = {"op": op, "bpp": b, "width": w, "height": h, "srcbit": sbit, "dstbit": dbit,
-         "desc": int(rng.random() < 0.3), "value": rng.getrandbits(32), "fn": 0}
-    if op == "FILL":
-        j["srckind"] = "none"
-    elif op in ("LOGIC", "ADD") and rng.random() < 0.3:
-        j["srckind"] = "value"
-    else:
-        j["srckind"] = "mem"
-    if op == "LOGIC":
-        j["fn"] = rng.randrange(16)
-    if op == "ADD":
-        j["fn"] = rng.randrange(4)
-    if op == "KEYCOPY":
+    arow = (abit + w + 7) // 8
+    j = {"op": "BLIT", "bpp": b, "width": w, "height": h, "abit": abit, "bbit": bbit, "dbit": dbit,
+         "desc": int(rng.random() < 0.3), "value": rng.getrandbits(32), "sat": 0, "signed": 0,
+         "minterm": rng.choice(MINTERMS) if rng.random() < 0.7 else rng.getrandbits(8),
+         "mask": rng.choice([0, 0, 1, 2]), "bkind": "value" if rng.random() < 0.25 else "mem"}
+    if kind == "ADD" or (kind is None and rng.random() < 0.15):
+        j["op"] = "ADD"
+        j["sat"], j["signed"] = rng.randrange(2), rng.randrange(2)
+    if kind == "KEY":
+        j["mask"], j["minterm"], j["bkind"] = 2, 0xCA, "mem"
+    if kind == "MASK":
+        j["mask"] = 1
+        j["minterm"] = rng.choice([0xCA, 0x0A, 0xE2, rng.getrandbits(8)])
+    if kind == "C":
+        j["minterm"] = rng.choice([0x66, 0x88, 0xEE, 0x55])
+    if j["mask"] == 2:
         j["value"] = 0 if rng.random() < 0.7 else rng.getrandbits(8)
-    ss = rng.choice([1, 1, 1, -1]) * (srow + rng.randrange(0, 24))
+    ss = rng.choice([1, 1, 1, -1]) * (max(brow, arow) + rng.randrange(0, 24))
     if rng.random() < 0.1:
         ss = 0                                             # the same source row every time
     ds = rng.choice([1, 1, 1, -1]) * (drow + rng.randrange(0, 24))
-    j["sstride"], j["dstride"] = ss, ds
-    j["src"] = place(rng, area, 0x20000, h, ss, srow)
-    j["dst"] = place(rng, area + 0x20000, 0x20000, h, ds, drow)
+    j["abstride"], j["cdstride"] = ss, ds
+    j["bpt"] = place(rng, area, 0x10000, h, ss, brow)
+    j["apt"] = place(rng, area + 0x10000, 0x10000, h, ss, arow)
+    j["dpt"] = place(rng, area + 0x20000, 0x20000, h, ds, drow)
     return j
 
 
@@ -98,9 +107,9 @@ def make_overlap(rng, area):
     if delta_px > 0 and rng.random() < 0.5:                # a whole row down, too
         dst += stride
     after = (dst, dbit) > (src, bit)
-    return {"op": "COPY", "bpp": b, "width": w, "height": h, "srcbit": bit, "dstbit": dbit,
-            "desc": int(after), "srckind": "mem", "value": 0, "fn": 0,
-            "sstride": stride, "dstride": stride, "src": src, "dst": dst}
+    return {"op": "BLIT", "minterm": 0xCC, "mask": 0, "bpp": b, "width": w, "height": h,
+            "abit": 0, "bbit": bit, "dbit": dbit, "desc": int(after), "bkind": "mem", "value": 0,
+            "abstride": stride, "cdstride": stride, "apt": 0, "bpt": src, "dpt": dst}
 
 
 def main():
@@ -117,9 +126,9 @@ def main():
         area = REGION + ch * 0x40000
         jobs = [make_job(rng, area) for _ in range(7)]
         jobs.insert(rng.randrange(1, 7), make_overlap(rng, area))
-        for kind in ("KEYCOPY", "LOGIC", "ADD"):
+        for kind in ("KEY", "MASK", "MASK", "ADD", "C"):
             jobs.insert(rng.randrange(1, len(jobs)), make_job(rng, area, kind))
-        z = make_job(rng, area, "COPY")
+        z = make_job(rng, area)
         z["width"] = 0                                     # a job that does nothing
         jobs.insert(rng.randrange(1, len(jobs)), z)
         channels.append(jobs)

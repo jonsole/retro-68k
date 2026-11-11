@@ -370,8 +370,10 @@
 #define DMX_CTRL(n)                        HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_CTRL_OFS)
 #define DMX_CTRL_OP_SHIFT                  0
 #define DMX_CTRL_OP_MASK                   0x7u
-#define DMX_CTRL_FN_SHIFT                  4
-#define DMX_CTRL_FN_MASK                   0xF0u
+#define DMX_CTRL_SAT_SHIFT                 4
+#define DMX_CTRL_SAT_MASK                  0x10u
+#define DMX_CTRL_SIGNED_SHIFT              5
+#define DMX_CTRL_SIGNED_MASK               0x20u
 #define DMX_CTRL_BPP_SHIFT                 8
 #define DMX_CTRL_BPP_MASK                  0x300u
 #define DMX_CTRL_DESC_SHIFT                10
@@ -380,36 +382,44 @@
 #define DMX_CTRL_HIGH_MASK                 0x800u
 #define DMX_CTRL_IRQ_SHIFT                 12
 #define DMX_CTRL_IRQ_MASK                  0x1000u
-#define DMX_CTRL_SRCKIND_SHIFT             13
-#define DMX_CTRL_SRCKIND_MASK              0x6000u
-#define DMX_CTRL_DSTKIND_SHIFT             15
-#define DMX_CTRL_DSTKIND_MASK              0x18000u
-#define DMX_SRC_OFS                        0x4u
-#define DMX_SRC(n)                         HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_SRC_OFS)
-#define DMX_SRC_ADDR_SHIFT                 0
-#define DMX_SRC_ADDR_MASK                  0xFFFFFFu
-#define DMX_DST_OFS                        0x8u
-#define DMX_DST(n)                         HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_DST_OFS)
-#define DMX_DST_ADDR_SHIFT                 0
-#define DMX_DST_ADDR_MASK                  0xFFFFFFu
-#define DMX_WIDTH_OFS                      0xCu
-#define DMX_WIDTH(n)                       HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_WIDTH_OFS)
-#define DMX_WIDTH_COUNT_SHIFT              0
-#define DMX_WIDTH_COUNT_MASK               0xFFFFFFu
-#define DMX_HEIGHT_OFS                     0x10u
-#define DMX_HEIGHT(n)                      HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_HEIGHT_OFS)
-#define DMX_HEIGHT_ROWS_SHIFT              0
-#define DMX_HEIGHT_ROWS_MASK               0xFFFFu
-#define DMX_HEIGHT_SRCBIT_SHIFT            16
-#define DMX_HEIGHT_SRCBIT_MASK             0x70000u
-#define DMX_HEIGHT_DSTBIT_SHIFT            20
-#define DMX_HEIGHT_DSTBIT_MASK             0x700000u
+#define DMX_CTRL_BKIND_SHIFT               13
+#define DMX_CTRL_BKIND_MASK                0x6000u
+#define DMX_CTRL_DKIND_SHIFT               15
+#define DMX_CTRL_DKIND_MASK                0x18000u
+#define DMX_CTRL_MASK_SHIFT                17
+#define DMX_CTRL_MASK_MASK                 0x60000u
+#define DMX_CTRL_MINTERM_SHIFT             24
+#define DMX_CTRL_MINTERM_MASK              0xFF000000u
+#define DMX_BPT_OFS                        0x4u
+#define DMX_BPT(n)                         HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_BPT_OFS)
+#define DMX_BPT_ADDR_SHIFT                 0
+#define DMX_BPT_ADDR_MASK                  0xFFFFFFu
+#define DMX_BPT_BIT_SHIFT                  24
+#define DMX_BPT_BIT_MASK                   0x7000000u
+#define DMX_DPT_OFS                        0x8u
+#define DMX_DPT(n)                         HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_DPT_OFS)
+#define DMX_DPT_ADDR_SHIFT                 0
+#define DMX_DPT_ADDR_MASK                  0xFFFFFFu
+#define DMX_DPT_BIT_SHIFT                  24
+#define DMX_DPT_BIT_MASK                   0x7000000u
+#define DMX_SIZE_OFS                       0xCu
+#define DMX_SIZE(n)                        HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_SIZE_OFS)
+#define DMX_SIZE_WIDTH_SHIFT               0
+#define DMX_SIZE_WIDTH_MASK                0xFFFFu
+#define DMX_SIZE_HEIGHT_SHIFT              16
+#define DMX_SIZE_HEIGHT_MASK               0xFFFF0000u
+#define DMX_APT_OFS                        0x10u
+#define DMX_APT(n)                         HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_APT_OFS)
+#define DMX_APT_ADDR_SHIFT                 0
+#define DMX_APT_ADDR_MASK                  0xFFFFFFu
+#define DMX_APT_BIT_SHIFT                  24
+#define DMX_APT_BIT_MASK                   0x7000000u
 #define DMX_STRIDE_OFS                     0x14u
 #define DMX_STRIDE(n)                      HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_STRIDE_OFS)
-#define DMX_STRIDE_SRCSTRIDE_SHIFT         16
-#define DMX_STRIDE_SRCSTRIDE_MASK          0xFFFF0000u
-#define DMX_STRIDE_DSTSTRIDE_SHIFT         0
-#define DMX_STRIDE_DSTSTRIDE_MASK          0xFFFFu
+#define DMX_STRIDE_ABSTRIDE_SHIFT          16
+#define DMX_STRIDE_ABSTRIDE_MASK           0xFFFF0000u
+#define DMX_STRIDE_CDSTRIDE_SHIFT          0
+#define DMX_STRIDE_CDSTRIDE_MASK           0xFFFFu
 #define DMX_VALUE_OFS                      0x18u
 #define DMX_VALUE(n)                       HW_REG32(CUSTOM_BASE + DMX_AT(n) + DMX_VALUE_OFS)
 #define DMX_NEXT_OFS                       0x1Cu
@@ -921,10 +931,10 @@
 /* ---- DMXDESC: 32-byte layout in memory, spec 11/3 */
 typedef struct {
     uint32_t ctrl;
-    uint32_t src;
-    uint32_t dst;
-    uint32_t width;
-    uint32_t height;
+    uint32_t bpt;
+    uint32_t dpt;
+    uint32_t size;
+    uint32_t apt;
     uint32_t stride;
     uint32_t value;
     uint32_t next;
@@ -934,8 +944,10 @@ _Static_assert(sizeof(dmxdesc_t) == 32, "DMXDESC layout");
 #define DMXDESC_CTRL_OFS                   0x0u
 #define DMXDESC_CTRL_OP_SHIFT              0
 #define DMXDESC_CTRL_OP_MASK               0x7u
-#define DMXDESC_CTRL_FN_SHIFT              4
-#define DMXDESC_CTRL_FN_MASK               0xF0u
+#define DMXDESC_CTRL_SAT_SHIFT             4
+#define DMXDESC_CTRL_SAT_MASK              0x10u
+#define DMXDESC_CTRL_SIGNED_SHIFT          5
+#define DMXDESC_CTRL_SIGNED_MASK           0x20u
 #define DMXDESC_CTRL_BPP_SHIFT             8
 #define DMXDESC_CTRL_BPP_MASK              0x300u
 #define DMXDESC_CTRL_DESC_SHIFT            10
@@ -944,31 +956,39 @@ _Static_assert(sizeof(dmxdesc_t) == 32, "DMXDESC layout");
 #define DMXDESC_CTRL_HIGH_MASK             0x800u
 #define DMXDESC_CTRL_IRQ_SHIFT             12
 #define DMXDESC_CTRL_IRQ_MASK              0x1000u
-#define DMXDESC_CTRL_SRCKIND_SHIFT         13
-#define DMXDESC_CTRL_SRCKIND_MASK          0x6000u
-#define DMXDESC_CTRL_DSTKIND_SHIFT         15
-#define DMXDESC_CTRL_DSTKIND_MASK          0x18000u
-#define DMXDESC_SRC_OFS                    0x4u
-#define DMXDESC_SRC_ADDR_SHIFT             0
-#define DMXDESC_SRC_ADDR_MASK              0xFFFFFFu
-#define DMXDESC_DST_OFS                    0x8u
-#define DMXDESC_DST_ADDR_SHIFT             0
-#define DMXDESC_DST_ADDR_MASK              0xFFFFFFu
-#define DMXDESC_WIDTH_OFS                  0xCu
-#define DMXDESC_WIDTH_COUNT_SHIFT          0
-#define DMXDESC_WIDTH_COUNT_MASK           0xFFFFFFu
-#define DMXDESC_HEIGHT_OFS                 0x10u
-#define DMXDESC_HEIGHT_ROWS_SHIFT          0
-#define DMXDESC_HEIGHT_ROWS_MASK           0xFFFFu
-#define DMXDESC_HEIGHT_SRCBIT_SHIFT        16
-#define DMXDESC_HEIGHT_SRCBIT_MASK         0x70000u
-#define DMXDESC_HEIGHT_DSTBIT_SHIFT        20
-#define DMXDESC_HEIGHT_DSTBIT_MASK         0x700000u
+#define DMXDESC_CTRL_BKIND_SHIFT           13
+#define DMXDESC_CTRL_BKIND_MASK            0x6000u
+#define DMXDESC_CTRL_DKIND_SHIFT           15
+#define DMXDESC_CTRL_DKIND_MASK            0x18000u
+#define DMXDESC_CTRL_MASK_SHIFT            17
+#define DMXDESC_CTRL_MASK_MASK             0x60000u
+#define DMXDESC_CTRL_MINTERM_SHIFT         24
+#define DMXDESC_CTRL_MINTERM_MASK          0xFF000000u
+#define DMXDESC_BPT_OFS                    0x4u
+#define DMXDESC_BPT_ADDR_SHIFT             0
+#define DMXDESC_BPT_ADDR_MASK              0xFFFFFFu
+#define DMXDESC_BPT_BIT_SHIFT              24
+#define DMXDESC_BPT_BIT_MASK               0x7000000u
+#define DMXDESC_DPT_OFS                    0x8u
+#define DMXDESC_DPT_ADDR_SHIFT             0
+#define DMXDESC_DPT_ADDR_MASK              0xFFFFFFu
+#define DMXDESC_DPT_BIT_SHIFT              24
+#define DMXDESC_DPT_BIT_MASK               0x7000000u
+#define DMXDESC_SIZE_OFS                   0xCu
+#define DMXDESC_SIZE_WIDTH_SHIFT           0
+#define DMXDESC_SIZE_WIDTH_MASK            0xFFFFu
+#define DMXDESC_SIZE_HEIGHT_SHIFT          16
+#define DMXDESC_SIZE_HEIGHT_MASK           0xFFFF0000u
+#define DMXDESC_APT_OFS                    0x10u
+#define DMXDESC_APT_ADDR_SHIFT             0
+#define DMXDESC_APT_ADDR_MASK              0xFFFFFFu
+#define DMXDESC_APT_BIT_SHIFT              24
+#define DMXDESC_APT_BIT_MASK               0x7000000u
 #define DMXDESC_STRIDE_OFS                 0x14u
-#define DMXDESC_STRIDE_SRCSTRIDE_SHIFT     16
-#define DMXDESC_STRIDE_SRCSTRIDE_MASK      0xFFFF0000u
-#define DMXDESC_STRIDE_DSTSTRIDE_SHIFT     0
-#define DMXDESC_STRIDE_DSTSTRIDE_MASK      0xFFFFu
+#define DMXDESC_STRIDE_ABSTRIDE_SHIFT      16
+#define DMXDESC_STRIDE_ABSTRIDE_MASK       0xFFFF0000u
+#define DMXDESC_STRIDE_CDSTRIDE_SHIFT      0
+#define DMXDESC_STRIDE_CDSTRIDE_MASK       0xFFFFu
 #define DMXDESC_VALUE_OFS                  0x18u
 #define DMXDESC_NEXT_OFS                   0x1Cu
 #define DMXDESC_NEXT_ADDR_SHIFT            0
@@ -1018,16 +1038,15 @@ _Static_assert(sizeof(dmxdesc_t) == 32, "DMXDESC layout");
 #define INTB_SOFT                          0x13u  /* bit of source 18 in INTENA, INTPEND and INTRAW */
 #define VEC_NMI                            0x1Fu
 #define VEC_SPURIOUS                       0x18u
-#define DMX_OP_COPY                        0x0u
-#define DMX_OP_FILL                        0x1u
-#define DMX_OP_KEYCOPY                     0x2u
-#define DMX_OP_LOGIC                       0x3u
-#define DMX_OP_ADD                         0x4u
+#define DMX_OP_BLIT                        0x0u
+#define DMX_OP_ADD                         0x1u
 #define DMX_OP_MIX                         0x5u
 #define DMX_KIND_MEM                       0x0u
 #define DMX_KIND_PORT                      0x1u
-#define DMX_KIND_NONE                      0x2u
 #define DMX_KIND_VALUE                     0x3u
+#define DMX_MASK_NONE                      0x0u
+#define DMX_MASK_IMAGE                     0x1u
+#define DMX_MASK_KEY                       0x2u
 #define DMX_PORT_SD                        0x0u
 #define DMX_PORT_SERIAL                    0x1u
 #define COP_EXT                            0x80000000u  /* bit 31: 0 = MOVE, 1 = WAIT, SKIP, JUMP or STOP */

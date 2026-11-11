@@ -15,7 +15,7 @@
             include "hw.inc"
 
 BUF         equ     $090000             ; a block
-COPY8       equ     3<<DMX_CTRL_BPP_B
+COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)
 CHGO        equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)
 SLOW        equ     SDCON_EN_M|(125<<SDCON_CLKDIV_B)        ; 400 kHz
 FAST        equ     SDCON_EN_M|(2<<SDCON_CLKDIV_B)          ; 25 MHz
@@ -297,8 +297,8 @@ puts:       move.b  (a0)+,d0
 .done:      rts
 
 ;           CTRL                              SRC   DST   WIDTH HEIGHT STRIDE VALUE NEXT
-j_in:       dc.l    COPY8|(1<<DMX_CTRL_SRCKIND_B), 0,    BUF,  512,  1, 0, 0, 0     ; port 0 to BUF
-j_out:      dc.l    COPY8|(1<<DMX_CTRL_DSTKIND_B), BUF,  0,    512,  1, 0, 0, 0     ; BUF to port 0
+j_in:       dc.l    COPY8|(1<<DMX_CTRL_BKIND_B), 0,    BUF,  (1<<16)|512, 0, 0, 0, 0     ; port 0 to BUF
+j_out:      dc.l    COPY8|(1<<DMX_CTRL_DKIND_B), BUF,  0,    (1<<16)|512, 0, 0, 0, 0     ; BUF to port 0
 
 s_pass:     dc.b    "PASS",13,10,0
 s_cmd0:     dc.b    "FAIL: CMD0",13,10,0

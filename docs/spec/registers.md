@@ -114,10 +114,10 @@ Channel n (0–3) at `0x300 + n × 0x40`; the job registers (`+0x00`–`+0x1C`) 
 | Offset | Name | Access | Spec |
 |--------|------|--------|------|
 | `+0x00` | CTRL | RW | 11, 8 |
-| `+0x04` | SRC | RW | 11, 8 |
-| `+0x08` | DST | RW | 11, 8 |
-| `+0x0C` | WIDTH | RW | 11, 8 |
-| `+0x10` | HEIGHT | RW | 11, 8 |
+| `+0x04` | BPT | RW | 11, 8 |
+| `+0x08` | DPT | RW | 11, 8 |
+| `+0x0C` | SIZE | RW | 11, 8 |
+| `+0x10` | APT | RW | 11, 8 |
 | `+0x14` | STRIDE | RW | 11, 8 |
 | `+0x18` | VALUE | RW | 11, 8 |
 | `+0x1C` | NEXT | RW | 11, 8 |

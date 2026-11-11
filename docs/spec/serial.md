@@ -16,7 +16,7 @@ The USB serial link connects the computer to a PC through a small FT232H USB mod
 | CPU access | A data register for bytes, status with counts, interrupts on thresholds and a timeout |
 | DMA | DMA engine port 1 (spec 11): bulk transfers with no CPU work |
 | Low delay | The FPGA tells the FT232H to send at once when the transmit FIFO empties, so console text appears without the usual 16 ms USB delay |
-| Control commands | A special 16-byte sequence from the PC triggers NMI (break into the debugger), reset, or reset into the upload loader, even when the 68000 has hung |
+| Control commands | A 3-byte command from the PC (`C0 c ~c`, with the PC's other bytes SLIP-escaped) triggers NMI (break into the debugger), reset, or reset into the upload loader, even when the 68000 has hung |
 
 ## 2. How the FIFO link works
 
@@ -44,26 +44,33 @@ The FT232H runs in **asynchronous 245 FIFO mode**. Its EEPROM must be set for th
 
 ## 3. Control commands from the PC
 
-The link has no separate "break" signal in FIFO mode, so the PC sends commands in the data stream. The receiver watches for this 16-byte sequence:
+The link has no separate "break" signal in FIFO mode, so the PC sends commands in the data stream. While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-style. Two byte values are kept for the link:
 
-```
- 00 FF 52 36 38 4B 2D 43 54 4C FF 00 A5 5A  c  ~c
- (0x00 0xFF "R68K-CTL" 0xFF 0x00 0xA5 0x5A, then a command byte c and its inverse)
-```
+| Bytes from the PC | Reach the FIFO as | Meaning |
+|-------------------|-------------------|---------|
+| `C0 c ~c` | Nothing | A control command (table below) |
+| `DB DC` | `C0` | An escaped data byte |
+| `DB DD` | `DB` | An escaped data byte |
+| `DB` then any other byte | That byte | Not sent by the PC tools; passed on |
+| Any other byte | Itself, at once | Data |
 
-| c | Command | Effect |
-|---|---------|--------|
-| `0x01` | BREAK | NMI (spec 13, NMISTAT.USB), to enter a debug monitor |
-| `0x02` | RESET | Reset the computer (RESETWHY.USB) |
-| `0x03` | UPLOAD | Reset the computer with RESETWHY.UPLOAD set, so the boot ROM waits for a program over the link instead of starting normally |
+| c | ~c | Command | Effect |
+|---|----|---------|--------|
+| `0x01` | `0xFE` | BREAK | NMI (spec 13, NMISTAT.USB), to enter a debug monitor. Only while CTLEN is set |
+| `0x02` | `0xFD` | RESET | Reset the computer (RESETWHY.USB) |
+| `0x03` | `0xFC` | UPLOAD | Reset the computer with RESETWHY.UPLOAD set, so the boot ROM's loader waits for a program over the link (the shared spec "Monitor and upload protocol", [`monitor.md`](monitor.md), section 6). This is the only way into UPLOAD: a long press of the reset button is a plain reset |
 
-- The sequence is recognised in hardware, so it works even when the 68000 has crashed.
-- The 16 bytes are removed from the data stream; software never sees them.
-- A partly matching sequence that turns out different is passed on unchanged.
-- The chance of binary data containing the sequence by accident is about 1 in 2^120 at each position, so file transfers need no escaping.
-- **SERCON.CTLEN** turns recognition off, for example while a program needs the raw stream. It is on after reset, so a hung machine can always be reached. RESET and UPLOAD stay available even when CTLEN is off if SERCON.CTLLOCK is set before turning it off.
+- The commands and escapes are handled in hardware, so commands work even when the 68000 has crashed or runs with interrupts off.
+- The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine (port 1) see only the data, in order.
+- **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once: a `C0` with nothing after it would wait, but the PC tools never send one. (An earlier 16-byte sequence, `00 FF "R68K-CTL" FF 00 A5 5A c ~c`, held back any bytes that might start it, so a message ending in `0x00`, such as a frame whose CRC ends in `0x00`, was seen only when the next byte came. The retro-z80 session found it on its board; this design is shared with it.)
+- The decoder's state (in an escape, in a command) is cleared at power-on only, like the FT232H interface, so the link survives other resets. A reset cannot come in the middle of a command: the command itself causes it.
+- **Terminals:** a plain terminal program sends its bytes unescaped. That is fine for ASCII. In UTF-8, `C0` never appears, but `DB` is a lead byte (U+06C0–U+06FF), so such a character would be decoded wrongly. For binary or non-ASCII text use `rlink.py term`, which escapes.
+- A broken command (a wrong inverse, or a code other than 1–3) is dropped. A `C0` always starts a command again, even inside another one.
+- The PC tools escape every byte they send except the commands. Random data grows by about 0.8 %.
+- With CTLEN and CTLLOCK both clear, every byte goes to the FIFO as it is, `C0` and `DB` too: a program can then run its own protocol on the link, and the PC must not escape.
+- **SERCON.CTLEN** turns recognition off (it is on after reset, so a hung machine can always be reached). With **SERCON.CTLLOCK** set, RESET and UPLOAD still work when CTLEN is off. Once set, CTLLOCK cannot be cleared by software; a reset clears it.
 
-A small PC tool in `tools/` will send these commands, and upload programs using the boot ROM's loader protocol (to be defined with the boot ROM).
+The PC tool `tools/rlink.py`, shared with retro-z80, sends the commands and uploads programs with the upload protocol of [`monitor.md`](monitor.md) (sections 6 and 8).
 
 ## 4. Using the link from the CPU
 
@@ -123,7 +130,7 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 |---|------|
 | U1 | Set the FT232H module's EEPROM to 245 FIFO mode with FT_Prog (once, before first use) |
 | U2 | Measure real throughput with Linux and Windows drivers |
-| U3 | The boot ROM's upload protocol (with the boot ROM spec) |
+| U3 | Settled: the upload protocol is in the shared spec `monitor.md`, and the control commands and escapes (section 3) are agreed with retro-z80 |
 | U4 | Should the link offer several logical channels (e.g. console and debugger at once)? For now software can share the one stream |
 | U5 | Synchronous 245 FIFO mode (up to about 40 MB/s): needs the FT232H's 60 MHz CLKOUT and OE# on two more accelerator-port pins |
 | U6 | Which `accel_io` pins carry the 13 signals, and which FT232H module to recommend (pin order, how it plugs onto the Pi header). Provisional in the KS3 build: `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# |
@@ -133,7 +140,7 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 - **Loopback:** a PC test sends megabytes of random data; the computer echoes it back; check it arrives complete and in order, with software reading slowly and quickly.
 - **Flow control:** stop reading on the computer for seconds while the PC sends; nothing is lost.
 - **No listener:** with the PC port closed, sends fill up; with TXDROP, old bytes drop and are counted.
-- **Control commands:** BREAK gives one NMI; RESET and UPLOAD reset with the right RESETWHY; the 16 bytes never appear in the data; near-miss sequences pass through unchanged; CTLEN and CTLLOCK behave as described; commands work while the 68000 is stuck in a loop with interrupts off.
+- **Control commands and escapes** (`make serial`, and the `+serial` boot test): a frame ending in `0x00` reaches the FIFO at once; `DB DC` and `DB DD` give `C0` and `DB`; BREAK gives one NMI; RESET and UPLOAD reset with the right RESETWHY; none of a command's bytes reach the FIFO; broken commands are dropped; CTLLOCK alone keeps RESET and UPLOAD; with CTLEN and CTLLOCK clear every byte goes on raw.
 - **Interrupts:** RXREADY, RXTIMEOUT, TXREADY and TXOVF at their thresholds.
 - **DMA:** port 1 transfers in both directions at full speed.
 - **Latency:** a single byte sent by the computer reaches the PC in well under 16 ms.

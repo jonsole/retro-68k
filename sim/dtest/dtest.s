@@ -11,7 +11,7 @@
 ;              rest a chain in Chip RAM
 ;
 ; Then directed tests on single jobs (palettes, the ROM, registers, errors,
-; STOP, PAUSE, port 1 both ways, HIGH, a timer start), checked by the CPU.
+; STOP, PAUSE, port 1 both ways, HIGH, a timer start, MASK = 3), checked by the CPU.
 ; The PASS line itself is sent by a DMA job from the ROM to port 1. Run
 ; with +dmxsend (the PC sends the bytes the port test expects).
 ;
@@ -105,8 +105,8 @@ hang:       bra.s   hang
 ; Each runs on channel 0 (job registers and RUN) and is checked by the CPU.
 ; They use Chip RAM outside the area dmodel.py checks.
 D_AREA      equ     $080000
-COPY8       equ     3<<DMX_CTRL_BPP_B                           ; COPY, 8 bpp, from memory
-FILL8       equ     1|(3<<DMX_CTRL_BPP_B)|(2<<DMX_CTRL_SRCKIND_B)
+COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)  ; BLIT D = B, 8 bpp, B from memory
+FILL8       equ     COPY8|(DMX_KIND_VALUE<<DMX_CTRL_BKIND_B)          ; B is VALUE
 CHGO        equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)
 
 directed:   lea     D_AREA,a1           ; 16 long words of test data (palette colours)
@@ -184,6 +184,12 @@ directed:   lea     D_AREA,a1           ; 16 long words of test data (palette co
             move.l  #DMX_CHSTAT_ERR_M|DMX_CHSTAT_DONE_M,DMX0+DMX_CHSTAT(a4)
             lea     j_misreg(pc),a1     ; a reserved OP (7): an error
             lea     s_t9(pc),a0
+            bsr     runjob
+            btst    #DMX_CHSTAT_ERR_B,d0
+            beq     failed
+            move.l  #DMX_CHSTAT_ERR_M|DMX_CHSTAT_DONE_M,DMX0+DMX_CHSTAT(a4)
+            lea     j_mask3(pc),a1      ; MASK = 3: an error
+            lea     s_t16(pc),a0
             bsr     runjob
             btst    #DMX_CHSTAT_ERR_B,d0
             beq     failed
@@ -313,25 +319,27 @@ cmpl:       cmpm.l  (a1)+,(a2)+
             dbra    d1,cmpl
             rts
 
-;           CTRL   SRC                 DST                         WIDTH   HEIGHT STRIDE VALUE      NEXT
-j_topal:    dc.l   COPY8, D_AREA,       CUSTOM+PALETTE1,            64,     1, 0, 0, 0
-j_frompal:  dc.l   COPY8, CUSTOM+PALETTE1, D_AREA+$100,             64,     1, 0, 0, 0
-j_rom:      dc.l   COPY8, ROM,          D_AREA+$200,                128,    1, 0, 0, 0
-j_toreg:    dc.l   COPY8, D_AREA+$300,  CUSTOM+L0+L_WINX,           8,      1, 0, 0, 0
-j_fromreg:  dc.l   COPY8, CUSTOM+VIDSIZE, D_AREA+$400,              4,      1, 0, 0, 0
-j_fillreg:  dc.l   FILL8, 0,            CUSTOM+BGCOLOR,             4,      1, 0, $00123456, 0
-j_todram:   dc.l   COPY8, D_AREA,       CUSTOM+DESCRAM+$700,        16,     1, 0, 0, 0
-j_fromdram: dc.l   COPY8, CUSTOM+DESCRAM+$700, D_AREA+$500,         16,     1, 0, 0, 0
-j_bad:      dc.l   COPY8, D_AREA,       SYSTEM,                     4,      1, 0, 0, 0
-j_misreg:   dc.l   7|COPY8, D_AREA,     D_AREA+$100,                4,      1, 0, 0, 0
-j_ch1:      dc.l   FILL8, 0,            D_AREA+$600,                32,     1, 0, $A5A5A5A5, 0
-j_start1:   dc.l   COPY8, D_AREA+$700,  CUSTOM+DMX1+DMX_CHCTRL,     4,      1, 0, 0, 0
-j_big:      dc.l   FILL8, 0,            $0A0000,                    $10000, 1, 0, 0, 0
-j_pause:    dc.l   FILL8, 0,            $0B0000,                    256,    1, 0, 0, 0
-j_portin:   dc.l   COPY8|(1<<DMX_CTRL_SRCKIND_B), 1, D_AREA+$800,   64,     1, 0, 0, 0
-j_high:     dc.l   FILL8|DMX_CTRL_HIGH_M, 0, D_AREA+$A00,           256,    1, 0, $3C3C3C3C, 0
-j_tmr:      dc.l   FILL8, 0,            D_AREA+$900,                32,     1, 0, $5A5A5A5A, 0
-j_pass:     dc.l   COPY8|(1<<DMX_CTRL_DSTKIND_B), s_pass, 1,        6,      1, 0, 0, 0
+;           CTRL   BPT                 DPT                         SIZE (HEIGHT<<16 | WIDTH)  APT STRIDE VALUE NEXT
+j_topal:    dc.l   COPY8, D_AREA, CUSTOM+PALETTE1, (1<<16)|64, 0, 0, 0, 0
+j_frompal:  dc.l   COPY8, CUSTOM+PALETTE1, D_AREA+$100, (1<<16)|64, 0, 0, 0, 0
+j_rom:      dc.l   COPY8, ROM, D_AREA+$200, (1<<16)|128, 0, 0, 0, 0
+j_toreg:    dc.l   COPY8, D_AREA+$300, CUSTOM+L0+L_WINX, (1<<16)|8, 0, 0, 0, 0
+j_fromreg:  dc.l   COPY8, CUSTOM+VIDSIZE, D_AREA+$400, (1<<16)|4, 0, 0, 0, 0
+j_fillreg:  dc.l   FILL8, 0, CUSTOM+BGCOLOR, (1<<16)|4, 0, 0, $00123456, 0
+j_todram:   dc.l   COPY8, D_AREA, CUSTOM+DESCRAM+$700, (1<<16)|16, 0, 0, 0, 0
+j_fromdram: dc.l   COPY8, CUSTOM+DESCRAM+$700, D_AREA+$500, (1<<16)|16, 0, 0, 0, 0
+j_bad:      dc.l   COPY8, D_AREA, SYSTEM, (1<<16)|4, 0, 0, 0, 0
+j_misreg:   dc.l   7|COPY8, D_AREA, D_AREA+$100, (1<<16)|4, 0, 0, 0, 0
+j_ch1:      dc.l   FILL8, 0, D_AREA+$600, (1<<16)|32, 0, 0, $A5A5A5A5, 0
+j_start1:   dc.l   COPY8, D_AREA+$700, CUSTOM+DMX1+DMX_CHCTRL, (1<<16)|4, 0, 0, 0, 0
+j_big:      dc.l   FILL8, 0, $0A0000, (4<<16)|$4000, 0, $4000, 0, 0
+j_pause:    dc.l   FILL8, 0, $0B0000, (1<<16)|256, 0, 0, 0, 0
+j_portin:   dc.l   COPY8|(1<<DMX_CTRL_BKIND_B), 1, D_AREA+$800, (1<<16)|64, 0, 0, 0, 0
+j_high:     dc.l   FILL8|DMX_CTRL_HIGH_M, 0, D_AREA+$A00, (1<<16)|256, 0, 0, $3C3C3C3C, 0
+j_tmr:      dc.l   FILL8, 0, D_AREA+$900, (1<<16)|32, 0, 0, $5A5A5A5A, 0
+j_pass:     dc.l   COPY8|(1<<DMX_CTRL_DKIND_B), s_pass, 1, (1<<16)|6, 0, 0, 0, 0
+
+j_mask3:    dc.l   COPY8|(3<<DMX_CTRL_MASK_B), D_AREA, D_AREA+$100, (1<<16)|4, 0, 0, 0, 0
 
 s_t1:       dc.b    "FAIL: T1 Chip RAM to a palette",13,10,0
 s_t2:       dc.b    "FAIL: T2 a palette to Chip RAM",13,10,0
@@ -348,6 +356,7 @@ s_t12:      dc.b    "FAIL: T12 PAUSE",13,10,0
 s_t13:      dc.b    "FAIL: T13 port 1 to memory",13,10,0
 s_t14:      dc.b    "FAIL: T14 a HIGH job",13,10,0
 s_t15:      dc.b    "FAIL: T15 a timer starts a channel",13,10,0
+s_t16:      dc.b    "FAIL: T16 MASK = 3 is an error",13,10,0
             even
 
 puts:       move.b  (a0)+,d0

@@ -107,7 +107,7 @@ There is no card-detect switch. To find out whether a card is there, or has been
 
 ```asm
 ; Example 8-1: read block d2 into BUF, by DMA (the card started, and selected)
-COPY8       equ     3<<DMX_CTRL_BPP_B
+COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)  ; BLIT D = B, 8 bpp
 readblk:    moveq   #17,d1
             moveq   #-1,d3
             bsr     cmd
@@ -121,11 +121,10 @@ readblk:    moveq   #17,d1
             bne     error               ; an error token
             move.l  #512,SDCOUNT(a5)
             lea     DMX0(a4),a0
-            move.l  #COPY8|(1<<DMX_CTRL_SRCKIND_B),DMX_CTRL(a0)   ; from a port ...
-            move.l  #0,DMX_SRC(a0)                                ; ... port 0, the card
-            move.l  #BUF,DMX_DST(a0)
-            move.l  #512,DMX_WIDTH(a0)
-            move.l  #1,DMX_HEIGHT(a0)
+            move.l  #COPY8|(1<<DMX_CTRL_BKIND_B),DMX_CTRL(a0)     ; B from a port ...
+            move.l  #0,DMX_BPT(a0)                                ; ... port 0, the card
+            move.l  #BUF,DMX_DPT(a0)
+            move.l  #(1<<16)|512,DMX_SIZE(a0)                     ; 1 row of 512 bytes
             move.l  #0,DMX_NEXT(a0)
             move.l  #DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B),DMX_CHCTRL(a0)
 .w:         btst    #DMX_CHSTAT_BUSY_B,DMX_CHSTAT+3(a0)

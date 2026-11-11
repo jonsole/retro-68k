@@ -39,7 +39,7 @@ Each direction has a 2 KB FIFO in the FPGA and another 1 KB in the FT232H. The h
 | Flow control | Software (XON/XOFF) or none | Automatic in hardware: nothing is ever lost |
 | Data register | SERDAT (write), SERDATR (read) | SERDATA (read and write) |
 | Interrupts | RBF (level 5) and TBE (level 1), one byte at a time | One source, level 3, with thresholds and a timeout |
-| Break | A long space on the line | A command sequence in the data, recognised by hardware |
+| Break | A long space on the line | A 3-byte command in the data, recognised by hardware |
 
 ## Turning the Link On
 
@@ -324,13 +324,12 @@ Both the program and the handler write SERIRQEN with a whole new value instead o
 
 ## Commands from the PC
 
-The PC can control the computer through the link, even when the 68000 has crashed with interrupts off. There is no separate break signal in FIFO mode, so the PC sends a 16-byte command sequence in the data stream, and hardware in the FPGA watches for it:
+The PC can control the computer through the link, even when the 68000 has crashed with interrupts off. There is no separate break signal in FIFO mode, so the PC sends commands in the data stream, and hardware in the FPGA picks them out. While command recognition is on, two byte values are kept for the link:
 
-```
-  00 FF 52 36 38 4B 2D 43 54 4C FF 00 A5 5A  c ~c
+- `$C0` starts a command: `$C0`, then a command byte c, then its inverse ~c.
+- `$DB` starts an escape: the PC sends a data `$C0` as `$DB $DC`, and a data `$DB` as `$DB $DD`. The hardware turns them back into `$C0` and `$DB` before they reach the receive FIFO.
 
-  $00 $FF, "R68K-CTL", $FF $00 $A5 $5A, then a command byte c and its inverse
-```
+Every other byte goes straight through. (This is the scheme SLIP, an old serial-line protocol, uses.)
 
 | c | ~c | Command | Effect |
 |---|----|---------|--------|
@@ -338,27 +337,31 @@ The PC can control the computer through the link, even when the 68000 has crashe
 | `$02` | `$FD` | RESET | Reset the computer, with RESETWHY.USB set |
 | `$03` | `$FC` | UPLOAD | Reset the computer with RESETWHY.UPLOAD set, so the boot ROM waits for a program over the link |
 
-- The 16 bytes of a command are removed from the data: your program never sees them.
-- A sequence that starts to match and then turns out different is passed on unchanged.
-- The chance of other data containing the whole sequence by accident is so small (about 1 in 2^120 at each position) that file transfers need no escaping.
+- A command's 3 bytes and the escape bytes are removed from the data: your program sees only the data, in order, and so does the DMA engine.
+- No data byte ever waits for the next one, so a message can end with any byte.
+- A broken command (a wrong inverse, or an unknown c) is dropped.
+- A plain terminal program sends its bytes unescaped. That is fine for ASCII text, which never contains `$C0` or `$DB`. For binary data, or non-ASCII text, use the PC tool `tools/rlink.py`, which escapes.
 
 ### Sending a Command from the PC
 
-On Linux, after setting the port to raw mode, a RESET is:
+The PC tool `tools/rlink.py` sends commands (`rlink.py reset`, `break`, `uploadmode`) and escapes everything else it sends. Without it, on Linux, after setting the port to raw mode, a RESET is:
 
 ```
-printf '\x00\xffR68K-CTL\xff\x00\xa5\x5a\x02\xfd' > /dev/ttyUSB1
+printf '\xc0\x02\xfd' > /dev/ttyUSB1
 ```
 
-Or from Python:
+Or from Python, with the escaping a program needs when it sends data too:
 
 ```python
-def r68k_command(port, c):
-    seq = bytes([0x00, 0xFF]) + b"R68K-CTL" + bytes([0xFF, 0x00, 0xA5, 0x5A, c, c ^ 0xFF])
-    with open(port, "wb", buffering=0) as f:
-        f.write(seq)
+def r68k_command(f, c):
+    f.write(bytes([0xC0, c, c ^ 0xFF]))
 
-r68k_command("/dev/ttyUSB1", 0x01)      # BREAK
+def r68k_escape(data):
+    return data.replace(b"\xdb", b"\xdb\xdd").replace(b"\xc0", b"\xdb\xdc")
+
+with open("/dev/ttyUSB1", "wb", buffering=0) as f:
+    f.write(r68k_escape(b"some data"))
+    r68k_command(f, 0x01)      # BREAK
 ```
 
 ### Handling BREAK
@@ -384,7 +387,7 @@ RESET and UPLOAD reset the computer like the reset button. Your start-up code ca
 
 ### Turning Commands Off
 
-Some programs need every byte the PC sends, unchanged. Clearing SERCON.CTLEN turns command recognition off, and BREAK with it. To keep a way to reset the machine from the PC, set CTLLOCK first: while CTLLOCK is set, RESET and UPLOAD still work.
+Some programs need every byte the PC sends, unchanged and unescaped. Clearing SERCON.CTLEN turns command recognition off, and BREAK with it. To keep a way to reset the machine from the PC, set CTLLOCK first: while CTLLOCK is set, RESET and UPLOAD still work.
 
 ```asm
         move.l  SERCON(a5),d0
@@ -393,7 +396,7 @@ Some programs need every byte the PC sends, unchanged. Clearing SERCON.CTLEN tur
         move.l  d0,SERCON(a5)
 ```
 
-While the hardware is matching the start of a command, it holds those bytes back until it knows whether they are a command. So if the last bytes the PC sends happen to be the start of the sequence (a single `$00`, for example), your program sees them only when the next byte arrives. A protocol that runs with recognition on should not end a message with `$00`. With both CTLEN and CTLLOCK clear, nothing is held back.
+While CTLLOCK is set, the escapes are still decoded, so the PC must keep escaping. With both CTLEN and CTLLOCK clear, every byte goes to the FIFO as it is, `$C0` and `$DB` too, and the PC must not escape.
 
 ## Bulk Transfers with DMA
 
@@ -415,6 +418,6 @@ The DMA engine, when it is built, will be able to move whole files between the l
 | Item | Value |
 |------|-------|
 | Interrupt source | 15 (SERIAL), vector 79, level 3 by default |
-| Command sequence | `00 FF 52 36 38 4B 2D 43 54 4C FF 00 A5 5A c ~c` |
+| Commands and escapes | `$C0 c ~c`; data `$C0` sent as `$DB $DC`, data `$DB` as `$DB $DD` |
 | Commands | `$01` BREAK (NMI), `$02` RESET, `$03` UPLOAD |
 | FIFOs | 2 KB each way in the FPGA, 1 KB each way in the FT232H |

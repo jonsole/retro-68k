@@ -15,16 +15,17 @@ Used two ways:
     difference.
 
 A job is a dict with the descriptor's fields, decoded:
-  op ('COPY', 'FILL', 'KEYCOPY', 'LOGIC', 'ADD'), fn, bpp (1, 2, 4, 8),
-  desc, srckind ('mem', 'value', 'none'), src, dst, width, height,
-  srcbit, dstbit, sstride, dstride (signed), value.
+  op ('BLIT', 'ADD'), minterm, mask (0 none, 1 image at apt, 2 key compare),
+  sat, signed (ADD), bpp (1, 2, 4, 8), desc, bkind ('mem', 'value'),
+  apt, abit, bpt, bbit, dpt, dbit, width, height, abstride, cdstride
+  (signed), value.
 Only Chip RAM sources and destinations are modelled here.
 """
 import json
 import sys
 
-OPS = {"COPY": 0, "FILL": 1, "KEYCOPY": 2, "LOGIC": 3, "ADD": 4}
-KINDS = {"mem": 0, "port": 1, "none": 2, "value": 3}
+OPS = {"BLIT": 0, "ADD": 1}
+KINDS = {"mem": 0, "port": 1, "value": 3}
 
 
 def get_pix(mem, addr, pos, b):
@@ -66,11 +67,12 @@ def add_pix(d, s, b, sat, signed):
     return r & top
 
 
-def logic_pix(d, s, b, fn):
+def minterm_pix(m, a, bv, c, b):
+    """BLIT: each bit of the result is MINTERM's bit a*4 + b*2 + c, where a
+    (the mask) is the same for every bit of the pixel."""
     r = 0
     for k in range(b):
-        sb, db = (s >> k) & 1, (d >> k) & 1
-        r |= ((fn >> (sb * 2 + db)) & 1) << k
+        r |= ((m >> (a * 4 + ((bv >> k) & 1) * 2 + ((c >> k) & 1))) & 1) << k
     return r
 
 
@@ -84,44 +86,45 @@ def run_job(mem, j):
     b, w, h = j["bpp"], j["width"], j["height"]
     if w == 0 or h == 0:
         return
-    op = j["op"]
     rows = range(h - 1, -1, -1) if j["desc"] else range(h)
     cols = range(w - 1, -1, -1) if j["desc"] else range(w)
+    key = j["value"] & ((1 << b) - 1)
     for r in rows:
-        srow = j["src"] + r * j["sstride"]
-        drow = j["dst"] + r * j["dstride"]
+        arow = j["apt"] + r * j["abstride"]
+        brow = j["bpt"] + r * j["abstride"]
+        drow = j["dpt"] + r * j["cdstride"]
         for i in cols:
-            da, dp = locate(drow, j["dstbit"], i, b)
-            if j["srckind"] == "mem":
-                sa, sp = locate(srow, j["srcbit"], i, b)
+            da, dp = locate(drow, j["dbit"], i, b)
+            if j["bkind"] == "mem":
+                sa, sp = locate(brow, j["bbit"], i, b)
                 s = get_pix(mem, sa, sp, b)
-            else:                                       # FILL, or VALUE as the source
+            else:                                       # VALUE
                 s = value_pix(j["value"], da, b)
-            d = get_pix(mem, da, dp, b)
-            if op in ("COPY", "FILL"):
-                v = s
-            elif op == "KEYCOPY":
-                if s == j["value"] & ((1 << b) - 1):
-                    continue
-                v = s
-            elif op == "LOGIC":
-                v = logic_pix(d, s, b, j["fn"])
-            elif op == "ADD":
-                v = add_pix(d, s, b, (j["fn"] >> 0) & 1, (j["fn"] >> 1) & 1)
+            if j["mask"] == 1:
+                aa, ap = locate(arow, j["abit"], i, 1)
+                a = get_pix(mem, aa, ap, 1)
+            elif j["mask"] == 2:
+                a = int(s != key)
+            else:
+                a = 1
+            c = get_pix(mem, da, dp, b)
+            if j["op"] == "ADD":
+                v = add_pix(c, s, b, j["sat"], j["signed"]) if a else c
+            else:
+                v = minterm_pix(j["minterm"], a, s, c, b)
             put_pix(mem, da, dp, b, v)
 
 
 def encode(j, nxt=0, irq=0):
     """The job as eight descriptor long words (spec 11, section 3)."""
     bppc = {1: 0, 2: 1, 4: 2, 8: 3}[j["bpp"]]
-    fn = j.get("fn", 0)
-    if j["op"] == "ADD":
-        fn = (fn & 3)                     # bit 4 saturate, bit 5 signed: FN bits 0 and 1
-    ctrl = (OPS[j["op"]] | (fn << 4) | (bppc << 8) | (j["desc"] << 10) | (irq << 12)
-            | (KINDS[j["srckind"]] << 13))
-    return [ctrl, j["src"] if j["srckind"] == "mem" else 0, j["dst"], j["width"],
-            j["height"] | (j["srcbit"] << 16) | (j["dstbit"] << 20),
-            ((j["sstride"] & 0xFFFF) << 16) | (j["dstride"] & 0xFFFF),
+    ctrl = (OPS[j["op"]] | (j.get("sat", 0) << 4) | (j.get("signed", 0) << 5) | (bppc << 8)
+            | (j["desc"] << 10) | (irq << 12) | (KINDS[j["bkind"]] << 13) | (j["mask"] << 17)
+            | (j.get("minterm", 0) << 24))
+    bpt = (j["bpt"] | (j["bbit"] << 24)) if j["bkind"] == "mem" else 0
+    apt = (j["apt"] | (j["abit"] << 24)) if j["mask"] == 1 else 0
+    return [ctrl, bpt, j["dpt"] | (j["dbit"] << 24), j["width"] | (j["height"] << 16), apt,
+            ((j["abstride"] & 0xFFFF) << 16) | (j["cdstride"] & 0xFFFF),
             j.get("value", 0), nxt]
 
 

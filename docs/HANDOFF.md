@@ -44,7 +44,7 @@ All from `sim/` unless noted. See `sim/README.md` for more options.
 | `make run ARGS=+dma` | Boot ROM with the DMA port busy | 5–50 min | yes |
 | `make ctest` | Copper: self-checking ROM, then 14 colour changes checked in the frame (`ctest/ccheck.py`) | 10–80 min | yes |
 | `make atest` | Audio: every output sample against a Python model | 3–10 min | yes |
-| `make dtest` | DMA engine: 48 random jobs on 4 channels, every byte of 1 MB against `dtest/dmodel.py`; then 15 directed tests (palettes, ROM, registers, errors, STOP, PAUSE, ports, HIGH, a timer start). `SEED=n` picks other random jobs | 1 min | yes |
+| `make dtest` | DMA engine: 56 random jobs on 4 channels (BLIT with common and random minterms, every MASK, ADD), every byte of 1 MB against `dtest/dmodel.py`; then 16 directed tests (palettes, ROM, registers, errors, STOP, PAUSE, ports, HIGH, a timer start, MASK = 3). `SEED=n` picks other random jobs | 1 min | yes |
 | `make iotest` | SD card (start-up, a block read and written by DMA) and PS/2 keyboard (bytes, a bad frame, sending), against `sd_model.v` and `ps2_model.v` | 5 min | yes |
 | `make rtest` | The 68000 RESET instruction: the devices are reset; the CPU, overlay, memory, watchdog, RESETWHY and time counter are not | 1 min | yes |
 | `make vtest` | Video: four screens (`pal`, `direct`, `spr`, `share`) checked pixel by pixel against `vtest/vmodel.py`; `make vtest VTESTS=spr` runs one. Each palette gets different colours; `spr` has the 8 sprites at many scales; `share` is `spr` with VIDCON.SHAREPAL | 45 min each | `spr` only |
@@ -70,20 +70,20 @@ Done and tested in simulation:
 | Sprites: 8, any size, 2/4/8 bpp, fractional scaling across and down (SPRxSTEP, 5.11, 16× to 1/16), depth, collisions, FIFO per sprite, changes while drawn, reuse down the screen, manual mode (SPRxDAT) | `sprites.v`, `sprite_pix.v`, `video.v` | vtest spr, share |
 | Copper: MOVE/WAIT/SKIP/JUMP, MOVR, ALU, SKIPC, CALL/RET, RESUME | `copper.v`, `firmware/include/copper.inc` | ctest |
 | Audio: 4 channels, 8/16-bit, pan, interpolation | `audio.v` | atest |
-| DMA engine and blitter: 4 channels, COPY/FILL/KEYCOPY/LOGIC/ADD at 1/2/4/8 bpp, 2D, DESC, descriptor chains or direct job registers, registers/palettes/ROM, ports 0 (SD) and 1 (serial), HIGH, timer starts | `dmx.v` | dtest |
+| DMA engine and blitter: 4 channels, BLIT (Amiga minterms of a mask A, an image B and the destination C; A a 1 bpp image or a key compare) and ADD at 1/2/4/8 bpp, 2D, DESC, descriptor chains or direct job registers, registers/palettes/ROM, ports 0 (SD) and 1 (serial), HIGH, timer starts | `dmx.v` | dtest |
 | SD card: SPI byte master, SDCOUNT for DMA port 0 | `sdspi.v` | iotest |
 | PS/2 keyboard: receive with FIFO, send | `ps2kb.v` | iotest |
 | Serial, interrupts, timers | `serial.v`, `intc.v`, `timers.v` | boot |
 | The 68000 RESET instruction: resets the devices (not the CPU, overlay, watchdog, time counter or USB link) | `retro68k.v` (`dev_rst`), `timers.v` | rtest |
 
-Size (Vivado): 15,730 LUTs (75.6%), 12 block RAM tiles, 8 DSP slices. Timing met at 100 MHz, worst setup slack +0.247 ns (in the audio engine, channel select to sample position), hold +0.027 ns. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
+Size (Vivado, XC7A35T): 16,638 LUTs (80.0%) after the blitter (29 October; 15,730 before), 12 block RAM tiles, 8 DSP slices. Timing met at 100 MHz, worst setup slack +0.066 ns (register bus write to the sprite registers' RAM), hold +0.050 ns. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
 
 ### Recent decisions to know about
 
 - **Beam coordinates** (spec 4, section 3.3). (0, 0) is the start of the horizontal and vertical blanks, so the picture is beam pixels 144–863 and lines 49–624. `hw.inc` has `VID_X0` = 144, `VID_Y0` = 49. Layer settings for line n must be written before line n starts; colours, BGCOLOR and PRIO can still change in line n's blank.
 - **Sprites** have unsigned positions and are clipped at all four edges. No flips. A write to SPRxCTL starts a sprite and the vertical blank stops them all, so each frame the registers are written with CTL last; PT, H, V and STEP act on a running sprite from the next line (wobbles, zooms, image switches). The fetcher works a line at a time (settings frozen at beam pixels 840-847, a line-start pass at pixel 0, the pixel side takes them at pixel 12), so HSTART must be 16 or more. A sprite in manual mode (SPRxDAT) should not be shrunk across.
 - **Sprite scaling**: screen pixel i shows source pixel ⌊i × XSTEP ÷ 2048⌋; the image is ⌈window × step ÷ 2048⌉. Shrinking across fetches every word (costs memory cycles in proportion); shrinking down skips lines.
-- **DMA engine**: job registers laid out as a descriptor; RUN runs them, START loads CHDESC first; NEXT chains. Register targets keep the register rules (COPY/FILL, 8 bpp, long-aligned, forwards), and are written whole, so strobes fire once. REGLIST was dropped (a COPY into registers does it). LOGIC and ADD take memory or VALUE, not ports. Channels take turns by groups of 8 words.
+- **DMA engine**: job registers laid out as a descriptor; RUN runs them, START loads CHDESC first; NEXT chains. BLIT replaced COPY, FILL, KEYCOPY and LOGIC on 29 October 2026, shared with retro-z80 (same op codes, minterm numbering and MASK values; our long-word layout; WIDTH is 16 bits so APT fits). The custom block is memory to the engine: any job can use it. REGLIST was dropped (a copy into registers does it). A port job is a plain copy (BLIT 0xCC, no mask). Channels take turns by groups of 8 words.
 - **SD card**: software does the SPI-mode protocol; the hardware moves bytes, and DMA moves blocks. No interrupt.
 - **Area technique.** Per-channel state in distributed RAM, worked on one channel at a time (as in `bpldma.v`, `sprites.v`, `dmx.v`), rather than flip-flop arrays with wide muxes.
 

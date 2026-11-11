@@ -61,7 +61,7 @@ Reading a block into memory:
 
 1. Send CMD17 and wait for R1 and the start token `0xFE`, as in 3.4.
 2. Write 512 to SDCOUNT.
-3. Run a DMA job: COPY, from port 0 (SRCKIND port, SRC = 0) to the buffer, 512 bytes (spec 11, section 4).
+3. Run a DMA job: a copy (BLIT, MINTERM `0xCC`), from port 0 (BKIND port, BPT = 0) to the buffer, 512 bytes (spec 11, section 4).
 4. When the job is done, read the 2 CRC bytes, deselect, send one more `0xFF`.
 
 Writing a block is the same the other way: the start token from the CPU, the 512 bytes by a DMA job to port 0, then the CRC bytes, the response token and the busy wait from the CPU. While SDCOUNT is not 0, or a DMA job sends to port 0, the CPU should not write SDDATA.
