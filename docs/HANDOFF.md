@@ -79,7 +79,7 @@ Done and tested in simulation:
 | Serial, interrupts, timers | `serial.v`, `intc.v`, `timers.v` | boot |
 | The 68000 RESET instruction: resets the devices (not the CPU, overlay, watchdog, time counter or USB link) | `retro68k.v` (`dev_rst`), `timers.v` | rtest |
 
-Size (Vivado, XC7A35T, 10 November, after the blitter port): 14,687 LUTs (70.6%), 9,627 flip-flops, 11.5 block RAM tiles, 6 DSP slices. It was 16,555 (79.6%) with the 4-channel DMA engine. Timing met at 100 MHz, worst setup slack +0.503 ns, hold +0.036 ns. **With the rasteriser (10 November, branch `raster`) the Vivado build has not been run yet**: the core is about 1,430 LUTs alone, so expect about 78–80%. Yosys gives 22,360 LUTs by its own count (108%; about 16,690 by Vivado's, 80%) and 11,037 flip-flops. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
+Size (Vivado, XC7A35T, 11 November, with the blitter and the rasteriser): 16,166 LUTs (77.7%), 10,809 flip-flops, 11.5 block RAM tiles. With the blitter alone it was 14,687 (70.6%); with the 4-channel DMA engine 16,555 (79.6%). Timing met at 100 MHz, worst setup slack +0.392 ns, hold +0.051 ns. **With the rasteriser (10 November, branch `raster`) the Vivado build has not been run yet**: the core is about 1,430 LUTs alone, so expect about 78–80%. Yosys gives 22,360 LUTs by its own count (108%; about 16,690 by Vivado's, 80%) and 11,037 flip-flops. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
 
 ### Recent decisions to know about
 
@@ -107,7 +107,7 @@ In rough order:
 
 ### Known gaps
 
-- The rasteriser is not built in Vivado yet (spec 17, Z3), and its times are worked out, not measured (Z2).
+- The rasteriser's times are worked out, not measured (spec 17, Z2).
 - retro-hw's `raster.v`, like `blitter.v`, does not reset the register that holds the old memory word: the first job in a simulation must read memory (spec 17, Z4; spec 11, D8).
 - Only the `spr` video screen is in CI (its own job, about an hour); `pal`, `direct` and `share` run locally.
 - Sprite open points (spec 9, section 9): S1, measure the memory budget table in simulation; S2, whether sprites' share of free cycles should be capped.
