@@ -20,8 +20,6 @@ module timers (
     input  wire        frame_tick,     // 1 clock at the start of each vertical blank
 
     output wire [3:0]  irq,            // TIMER0-3
-    output reg  [3:0]  dma_start,      // 1 clock: start DMA channel (spec 11)
-    output reg  [7:0]  dma_ch,         // channel for each timer, 2 bits each
     output reg         wd_reset        // 1 clock: the watchdog resets the computer
 );
     wire [15:0] off = {rb_addr[15:2], 2'b00};
@@ -39,7 +37,7 @@ module timers (
     always @(posedge clk) time_c <= por ? 64'd0 : time_c + 1'b1;
 
     // ---------------------------------------------------------------- general timers
-    reg [7:0]  ctrl     [0:3];         // DMACH, DMA, IRQ, SRC, REPEAT, EN
+    reg [4:0]  ctrl     [0:3];         // IRQ, SRC, REPEAT, EN
     reg [15:0] prescale [0:3];
     reg [15:0] pre_c    [0:3];
     reg [31:0] reload   [0:3];
@@ -68,7 +66,6 @@ module timers (
 
     always @(posedge clk) begin
         uf        <= 4'd0;
-        dma_start <= 4'd0;
         wd_reset  <= 1'b0;
         // Watchdog countdown (before the register writes below, so a kick wins)
         if (us_tick) ms_div <= (ms_div == 10'd999) ? 10'd0 : ms_div + 1'b1;
@@ -78,14 +75,13 @@ module timers (
         end
         if (rst) begin
             for (n = 0; n < 4; n = n + 1) begin
-                ctrl[n]     <= 8'd0;
+                ctrl[n]     <= 5'd0;
                 prescale[n] <= 16'd0;
                 pre_c[n]    <= 16'd0;
                 reload[n]   <= 32'd0;
                 count[n]    <= 32'd0;
             end
             under   <= 4'd0;
-            dma_ch  <= 8'd0;
         end else begin
             // Timers
             for (n = 0; n < 4; n = n + 1) begin
@@ -94,7 +90,6 @@ module timers (
                     if (count[n] == 32'd0) begin
                         uf[n]    <= 1'b1;
                         under[n] <= 1'b1;
-                        if (ctrl[n][5]) begin dma_start[n] <= 1'b1; dma_ch[2*n +: 2] <= ctrl[n][7:6]; end
                         if (ctrl[n][1]) count[n] <= reload[n];
                         else            ctrl[n][0] <= 1'b0;       // one-shot: stop
                     end else
@@ -108,7 +103,7 @@ module timers (
                     reg [31:0] v;
                     t = (off - 16'h0140) >> 5;
                     case (off[4:0])
-                        5'h00: begin v = merge({24'd0, ctrl[t]}, rb_wdata, rb_be); ctrl[t] <= v[7:0];
+                        5'h00: begin v = merge({27'd0, ctrl[t]}, rb_wdata, rb_be); ctrl[t] <= v[4:0];
                                      if (v[0] && !ctrl[t][0]) pre_c[t] <= prescale[t]; end
                         5'h04: begin v = merge({16'd0, prescale[t]}, rb_wdata, rb_be); prescale[t] <= v[15:0]; end
                         5'h08: reload[t] <= merge(reload[t], rb_wdata, rb_be);
@@ -153,7 +148,7 @@ module timers (
                 integer t;
                 t = (off - 16'h0140) >> 5;
                 case (off[4:0])
-                    5'h00: rb_rdata <= {24'd0, ctrl[t]};
+                    5'h00: rb_rdata <= {27'd0, ctrl[t]};
                     5'h04: rb_rdata <= {16'd0, prescale[t]};
                     5'h08: rb_rdata <= reload[t];
                     5'h0C: rb_rdata <= count[t];

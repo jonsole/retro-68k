@@ -92,7 +92,7 @@ module intc (
         4'd1, 4'd2, 4'd2, 4'd3,                       // 18 SOFT, 17 KEYB, 16 SD, 15 SERIAL
         4'd6, 4'd6, 4'd6, 4'd6,                       // 14-11 timers
         4'd4, 4'd4, 4'd4,                             // 10-8 audio
-        4'd4, 4'd4, 4'd4, 4'd4,                       // 7-4 DMA
+        4'd4, 4'd4, 4'd4, 4'd4,                       // 7-5 not used, 4 blitter
         4'd5, 4'd5, 4'd5, 4'd5 };                     // 3-0 video
 
     always @(posedge clk) begin

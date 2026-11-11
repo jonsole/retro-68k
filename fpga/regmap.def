@@ -26,7 +26,7 @@ block CHIPRAM 0x000000 0x400000 "Chip RAM (SRAM, 4 MB; 2 MB boards use the first
 block ROM     0xF80000 0x008000 "Boot ROM"
 
 # ---------------------------------------------------------------- custom block
-block CUSTOM 0xE00000 0x10000 "Custom registers: video, DMA engine, audio, copper"
+block CUSTOM 0xE00000 0x10000 "Custom registers: video, blitter, rasteriser, audio, copper"
 
 # Video (spec 4)
 reg 0x000 VIDCON     RW   4/6.1  EN=0 BLANKALL=2 DIRECT=4 SHAREPAL=5
@@ -41,6 +41,13 @@ reg 0x020 VIDSIZE    R    4/6.1  VVISIBLE=26:16 HVISIBLE=10:0
 
 # DMA control (spec 5); its 16-bit value sits in the low half at 0x096, as on the Amiga
 reg 0x094 DMACON     SC   5/8    AUD0EN=0 AUD1EN=1 AUD2EN=2 AUD3EN=3 SPREN=5 BLTEN=6 COPEN=7 BPLEN=8 DMAEN=9 SETCLR=15
+# The memory slot plan (spec 5): one register per slot of the scheduler's plan,
+# an owner bit per requester (by its number) and a lock bit
+reg 0x098 MEMSLOT0   RW   5/8.1  BPL=0 SPR=1 AUD=2 COP=3 CPU=4 BLT=5 RAS=6 LOCK=7
+reg 0x09C MEMSLOT1   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A0 MEMSLOT2   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A4 MEMSLOT3   RW   5/8.1  fields=MEMSLOT0
+reg 0x0A8 MEMSLOT4   RW   5/8.1  fields=MEMSLOT0
 
 # Layers 0-2 (spec 4): bitmaps with Amiga-style plane pointers, modulo and data registers
 array L 3 0x100 0x80 4/6.2
@@ -58,35 +65,48 @@ array L 3 0x100 0x80 4/6.2
   reg 0x34 BPL5PT  RW 4/4.4  ADDR=22:0
   reg 0x38 BPL6PT  RW 4/4.4  ADDR=22:0
   reg 0x3C BPL7PT  RW 4/4.4  ADDR=22:0
-  reg 0x40 BPL0DAT RW 4/5.1  DATA=15:0
-  reg 0x44 BPL1DAT RW 4/5.1  DATA=15:0
-  reg 0x48 BPL2DAT RW 4/5.1  DATA=15:0
-  reg 0x4C BPL3DAT RW 4/5.1  DATA=15:0
-  reg 0x50 BPL4DAT RW 4/5.1  DATA=15:0
-  reg 0x54 BPL5DAT RW 4/5.1  DATA=15:0
-  reg 0x58 BPL6DAT RW 4/5.1  DATA=15:0
-  reg 0x5C BPL7DAT RW 4/5.1  DATA=15:0
+  reg 0x40 BPL0DAT W  4/5.1  DATA=15:0
+  reg 0x44 BPL1DAT W  4/5.1  DATA=15:0
+  reg 0x48 BPL2DAT W  4/5.1  DATA=15:0
+  reg 0x4C BPL3DAT W  4/5.1  DATA=15:0
+  reg 0x50 BPL4DAT W  4/5.1  DATA=15:0
+  reg 0x54 BPL5DAT W  4/5.1  DATA=15:0
+  reg 0x58 BPL6DAT W  4/5.1  DATA=15:0
+  reg 0x5C BPL7DAT W  4/5.1  DATA=15:0
 end
 
 
-# DMA engine channels 0-3 (spec 11)
-# Each channel's job registers are laid out as a descriptor (DMXDESC)
-array DMX 4 0x300 0x40 11/8
-  reg 0x00 CTRL   RW   11/8  OP=2:0 SAT=4 SIGNED=5 BPP=9:8 DESC=10 HIGH=11 IRQ=12 BKIND=14:13 DKIND=16:15 MASK=18:17 MINTERM=31:24
-  reg 0x04 BPT    RW   11/8  ADDR=23:0 BIT=26:24
-  reg 0x08 DPT    RW   11/8  ADDR=23:0 BIT=26:24
-  reg 0x0C SIZE   RW   11/8  WIDTH=15:0 HEIGHT=31:16
-  reg 0x10 APT    RW   11/8  ADDR=23:0 BIT=26:24
-  reg 0x14 STRIDE RW   11/8  ABSTRIDE=31:16 CDSTRIDE=15:0
-  reg 0x18 VALUE  RW   11/8
-  reg 0x1C NEXT   RW   11/8  ADDR=23:0
-  reg 0x20 CHDESC RW   11/8  ADDR=23:0
-  reg 0x24 CHCTRL RW   11/8  START=0 RUN=1 STOP=2 PAUSE=3 CPUSHARE=5:4
-  reg 0x28 CHSTAT RW1C 11/8  BUSY=0 DONE=1 ERR=2 PAUSED=3
-  reg 0x2C CHERR  R    11/8  ADDR=23:0
-end
-reg 0x3F0 DMXINT   W1C 11/8  CH=3:0
-reg 0x3F4 DMXINTEN RW  11/8  CH=3:0
+# Blitter (spec 11). The job registers are laid out as a descriptor (BLTJOB)
+reg 0x300 BLTCTRL   RW   11/3  KEY=7:0 BPP=9:8 RTL=10 IRQ=12 BCONST=13 MASK=18:17 MINTERM=31:24
+reg 0x304 BLTBPT    RW   11/3  ADDR=23:0 BIT=26:24
+reg 0x308 BLTDPT    RW   11/3  ADDR=23:0 BIT=26:24
+reg 0x30C BLTSIZE   RW   11/3  WIDTH=15:0 HEIGHT=31:16
+reg 0x310 BLTAPT    RW   11/3  ADDR=23:0 BIT=26:24
+reg 0x314 BLTSTRIDE RW   11/3  BSTRIDE=31:16 DSTRIDE=15:0
+reg 0x318 BLTVALUE  RW   11/3  ASTRIDE=31:16 VALUE=15:0
+reg 0x31C BLTNEXT   RW   11/3  ADDR=23:0
+reg 0x320 BLTDESC   RW   11/7  ADDR=23:0
+reg 0x324 BLTCMD    W    11/7  START=0 RUN=1 STOP=2
+reg 0x328 BLTSTAT   R    11/7  BUSY=0 ERR=2
+
+# Rasteriser (spec 17). The job registers are laid out as a descriptor (RASJOB)
+reg 0x340 RASCTRL   RW   17/3  VALUE=7:0 BPP=9:8 IRQ=12 TRI=16 NOLAST=17 MINTERM=31:24
+reg 0x344 RASP0     RW   17/3  X=31:16 Y=15:0
+reg 0x348 RASP1     RW   17/3  X=31:16 Y=15:0
+reg 0x34C RASP2     RW   17/3  X=31:16 Y=15:0
+reg 0x350 RASDPT    RW   17/3  ADDR=23:0
+reg 0x354 RASSTRIDE RW   17/3  DSTRIDE=15:0
+reg 0x358 RASPAT    RW   17/3  PATTERN=15:0
+reg 0x35C RASNEXT   RW   17/3  ADDR=23:0
+reg 0x360 RASDESC   RW   17/7  ADDR=23:0
+reg 0x364 RASCMD    W    17/7  START=0 RUN=1 STOP=2
+reg 0x368 RASSTAT   R    17/7  BUSY=0 ERR=2
+reg 0x36C RASCLIPMIN RW  17/4  X=31:16 Y=15:0
+reg 0x370 RASCLIPMAX RW  17/4  X=31:16 Y=15:0
+
+# Shared by the blitter and the rasteriser (specs 11 and 17, section 7)
+reg 0x3F0 DMXINT    W1C  11/7  BLT=0 RAS=1
+reg 0x3F4 DMXINTEN  RW   11/7  BLT=0 RAS=1
 
 # Sprites (spec 9)
 reg 0x500 SPRDMA     SC  9/6    SPR=7:0 SETCLR=15
@@ -135,7 +155,6 @@ area PALETTE0   0x4000 0x0400 RW 4/6.3
 area PALETTE1   0x4400 0x0400 RW 4/6.3
 area PALETTE2   0x4800 0x0400 RW 4/6.3
 area SPRPALETTE 0x4C00 0x0400 RW 4/6.3
-area DESCRAM 0x6000 0x0800 RW 11/8
 
 # ---------------------------------------------------------------- system block
 block SYSTEM 0xF00000 0x10000 "System registers: interrupts, timers, serial, SD card, keyboard, system control"
@@ -158,7 +177,7 @@ reg 0x02C NMISTAT   W1C 13/5  BUTTON=0 USB=1
 reg 0x100 TIMEHI R 12/3
 reg 0x104 TIMELO R 12/3
 array TMR 4 0x140 0x20 12/6
-  reg 0x00 CTRL     RW  12/6    EN=0 REPEAT=1 SRC=3:2 IRQ=4 DMA=5 DMACH=7:6
+  reg 0x00 CTRL     RW  12/6    EN=0 REPEAT=1 SRC=3:2 IRQ=4
   reg 0x04 PRESCALE RW  12/4.2  DIV=15:0
   reg 0x08 RELOAD   RW  12/4.1
   reg 0x0C COUNT    RW  12/4.1
@@ -181,7 +200,6 @@ reg 0x21C SERDROP  R    14/4.3  COUNT=15:0
 # SD card (spec 15)
 reg 0x300 SDCON     RW  15/6    EN=0 CS0=1 CS1=2 CLKDIV=15:8
 reg 0x304 SDDATA    RW  15/3.1  BYTE=7:0 BUSY=8
-reg 0x308 SDCOUNT   RW  15/3.5  COUNT=15:0
 
 # Keyboard (spec 16)
 reg 0x400 KBCON   RW   16/4    EN=0
@@ -209,16 +227,28 @@ reg 0x84C I2CSTAT    R  7/6    BUSY=0 NACK=1 ARBLOST=2
 
 # ---------------------------------------------------------------- layouts in memory
 
-# DMA engine descriptor (spec 11, section 3)
-struct DMXDESC 32 11/3
-  reg 0x00 CTRL   RW 11/3  OP=2:0 SAT=4 SIGNED=5 BPP=9:8 DESC=10 HIGH=11 IRQ=12 BKIND=14:13 DKIND=16:15 MASK=18:17 MINTERM=31:24
+# Blitter job descriptor (spec 11, section 3)
+struct BLTJOB 32 11/3
+  reg 0x00 CTRL   RW 11/3  KEY=7:0 BPP=9:8 RTL=10 IRQ=12 BCONST=13 MASK=18:17 MINTERM=31:24
   reg 0x04 BPT    RW 11/3  ADDR=23:0 BIT=26:24
   reg 0x08 DPT    RW 11/3  ADDR=23:0 BIT=26:24
   reg 0x0C SIZE   RW 11/3  WIDTH=15:0 HEIGHT=31:16
   reg 0x10 APT    RW 11/3  ADDR=23:0 BIT=26:24
-  reg 0x14 STRIDE RW 11/3  ABSTRIDE=31:16 CDSTRIDE=15:0
-  reg 0x18 VALUE  RW 11/3
+  reg 0x14 STRIDE RW 11/3  BSTRIDE=31:16 DSTRIDE=15:0
+  reg 0x18 VALUE  RW 11/3  ASTRIDE=31:16 VALUE=15:0
   reg 0x1C NEXT   RW 11/3  ADDR=23:0
+end
+
+# Rasteriser job descriptor (spec 17, section 3)
+struct RASJOB 32 17/3
+  reg 0x00 CTRL   RW 17/3  VALUE=7:0 BPP=9:8 IRQ=12 TRI=16 NOLAST=17 MINTERM=31:24
+  reg 0x04 P0     RW 17/3  X=31:16 Y=15:0
+  reg 0x08 P1     RW 17/3  X=31:16 Y=15:0
+  reg 0x0C P2     RW 17/3  X=31:16 Y=15:0
+  reg 0x10 DPT    RW 17/3  ADDR=23:0
+  reg 0x14 STRIDE RW 17/3  DSTRIDE=15:0
+  reg 0x18 PAT    RW 17/3  PATTERN=15:0
+  reg 0x1C NEXT   RW 17/3  ADDR=23:0
 end
 
 # Text screen cell (spec 4, section 4.7): 16 bits: character 7-0, foreground 11-8, background 15-12
@@ -237,10 +267,7 @@ const INT_VBLANK 0
 const INT_LINE   1
 const INT_COPPER 2
 const INT_VIDERR 3
-const INT_DMA0   4
-const INT_DMA1   5
-const INT_DMA2   6
-const INT_DMA3   7
+const INT_BLT    4
 const INT_AUDIO  9
 const INT_TIMER0 11
 const INT_TIMER1 12
@@ -254,10 +281,7 @@ const INTB_VBLANK 0   "bit of source 0 in INTENA, INTPEND and INTRAW"
 const INTB_LINE   1   "bit of source 1 in INTENA, INTPEND and INTRAW"
 const INTB_COPPER 2   "bit of source 2 in INTENA, INTPEND and INTRAW"
 const INTB_VIDERR 3   "bit of source 3 in INTENA, INTPEND and INTRAW"
-const INTB_DMA0   4   "bit of source 4 in INTENA, INTPEND and INTRAW"
-const INTB_DMA1   5   "bit of source 5 in INTENA, INTPEND and INTRAW"
-const INTB_DMA2   6   "bit of source 6 in INTENA, INTPEND and INTRAW"
-const INTB_DMA3   7   "bit of source 7 in INTENA, INTPEND and INTRAW"
+const INTB_BLT    4   "bit of source 4 in INTENA, INTPEND and INTRAW"
 const INTB_AUDIO  9   "bit of source 9 in INTENA, INTPEND and INTRAW"
 const INTB_TIMER0 11  "bit of source 11 in INTENA, INTPEND and INTRAW"
 const INTB_TIMER1 12  "bit of source 12 in INTENA, INTPEND and INTRAW"
@@ -270,18 +294,10 @@ const INTB_SOFT   19  "bit of source 18 in INTENA, INTPEND and INTRAW"
 const VEC_NMI      31
 const VEC_SPURIOUS 24
 
-# DMA engine operations, kinds and ports (spec 11)
-const DMX_OP_BLIT    0
-const DMX_OP_ADD     1
-const DMX_OP_MIX     5
-const DMX_KIND_MEM   0
-const DMX_KIND_PORT  1
-const DMX_KIND_VALUE 3
-const DMX_MASK_NONE  0
-const DMX_MASK_IMAGE 1
-const DMX_MASK_KEY   2
-const DMX_PORT_SD     0
-const DMX_PORT_SERIAL 1
+# Blitter mask kinds (spec 11, section 3)
+const BLT_MASK_NONE  0
+const BLT_MASK_IMAGE 1
+const BLT_MASK_KEY   2
 
 # Copper instructions (spec 10, section 4)
 const COP_EXT       0x80000000 "bit 31: 0 = MOVE, 1 = WAIT, SKIP, JUMP or STOP"
@@ -291,7 +307,7 @@ const COP_OP_SKIP   1
 const COP_OP_JUMP   2
 const COP_OP_STOP   3
 const COP_PIXONLY   0x08000000 "bit 27: WAIT/SKIP compare the pixel position only"
-const COP_BLT       0x00008000 "bit 15: WAIT also waits for the DMA engine to be idle"
+const COP_BLT       0x00008000 "bit 15: WAIT also waits for the blitter to be idle"
 const COP_V_SHIFT   16
 const COP_H_SHIFT   0
 const COP_OP_MOVR   4          "MOVE through X and Y"

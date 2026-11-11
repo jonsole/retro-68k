@@ -14,7 +14,7 @@ This chapter tells you how to make the retro68k hardware interrupt the 68000, an
 - the four general timers: periodic interrupts, timeouts, counting video lines and frames, and chaining timers together;
 - the watchdog, which resets the computer if software hangs.
 
-The interrupt controller and the timers both live in the **system block** at `$F00000`. The copper and the DMA engine cannot reach the system block, so only the CPU can change these registers.
+The interrupt controller and the timers both live in the **system block** at `$F00000`. The copper and the blitter cannot reach the system block, so only the CPU can change these registers.
 
 ### Comparison with the Amiga
 
@@ -66,7 +66,7 @@ The 68000 has seven interrupt levels. Level 1 is the lowest priority and level 7
 
 (The `$2000` bit is the supervisor bit; these values also keep the CPU in supervisor mode.)
 
-Many units can ask for an interrupt: the video, the copper, the DMA engine, audio, the timers, the USB serial link, the SD card and the keyboard. The **interrupt controller** collects these requests, picks the most important one, and passes its level to the CPU. Figure 1 shows the path.
+Many units can ask for an interrupt: the video, the copper, the blitter, audio, the timers, the USB serial link, the SD card and the keyboard. The **interrupt controller** collects these requests, picks the most important one, and passes its level to the CPU. Figure 1 shows the path.
 
 ```
      UNIT (video, timer, ...)          INTERRUPT CONTROLLER ($F00000)
@@ -139,7 +139,8 @@ So an interrupt costs at least 3.2 us before your handler does anything. Keep th
 | 1 | LINE | 65 | `$104` | 5 | Video: line compare, at the start of beam line LINECMP | VIDSTAT.LINE |
 | 2 | COPPER | 66 | `$108` | 5 | The copper wrote COPINT (with COPCON.IRQEN set) | COPSTAT.IRQ (Chapter 5) |
 | 3 | VIDERR | 67 | `$10C` | 5 | Video problems, such as a layer OVERRUN | VIDSTAT |
-| 4-7 | DMA0-DMA3 | 68-71 | `$110`-`$11C` | 4 | DMA engine channels 0-3 | DMXINT.CH |
+| 4 | BLT | 68 | `$110` | 4 | The blitter: a job with IRQ ended, or the blitter stopped | DMXINT.BLT (with DMXINTEN) |
+| 5-7 | – | 69-71 | `$114`-`$11C` | – | Not used | |
 | 8 | – | 72 | `$120` | – | Not used in version 1 | |
 | 9 | AUDIO | 73 | `$124` | 4 | An audio channel took its registers: started, or reached the end of a block | AUDSTAT (with AUDINTEN) |
 | 10 | – | 74 | `$128` | – | Not used in version 1 | |
@@ -290,7 +291,7 @@ You clear an interrupt **in the unit that asked for it**, not in the interrupt c
 |--------|----------|
 | VBLANK | `move.l #VIDSTAT_VBLANK_M,CUSTOM+VIDSTAT` |
 | LINE | `move.l #VIDSTAT_LINE_M,CUSTOM+VIDSTAT` |
-| DMA channel 2 | `move.l #1<<2,CUSTOM+DMXINT` |
+| BLT | `move.l #DMXINT_BLT_M,CUSTOM+DMXINT` |
 | TIMER0 | `move.l #TMR_STAT_UNDER_M,SYSTEM+TMR0_STAT` |
 | SOFT | `move.l #SOFTINT_CLR_M,SYSTEM+SOFTINT` |
 
@@ -326,13 +327,13 @@ Each source has a **level**, 1 to 6, or 0 for off. The level decides which inter
 - When several sources at the **same** level are pending, the one with the **lowest source number** goes first. The others wait until its handler returns.
 - A source at level 0 never interrupts, whatever INTENA says.
 
-The defaults put the timers highest, so that an operating system's tick is never held up by graphics, then video, so that vertical blank and line handlers run on time, then audio and DMA, the serial link, and the slow devices:
+The defaults put the timers highest, so that an operating system's tick is never held up by graphics, then video, so that vertical blank and line handlers run on time, then audio and the blitter, the serial link, and the slow devices:
 
 ```
    level 7   NMI (button, USB break)          cannot be masked
    level 6   TIMER0  TIMER1  TIMER2  TIMER3
    level 5   VBLANK  LINE  COPPER  VIDERR
-   level 4   DMA0-3  AUDIO
+   level 4   BLT  AUDIO
    level 3   SERIAL
    level 2   SD  KEYB
    level 1   SOFT
@@ -542,7 +543,7 @@ If main code at mask 0 raises the software interrupt, the handler runs straight 
 retro68k has three kinds of timer, all in the system block:
 
 - the **time counter**, a 64-bit count of 10 ns steps since power-on;
-- four **general timers**, each a 32-bit down-counter with a 16-bit prescaler, which can interrupt, start a DMA channel, or drive the next timer;
+- four **general timers**, each a 32-bit down-counter with a 16-bit prescaler, which can interrupt, or drive the next timer;
 - the **watchdog**, which resets the computer if software stops looking after it (see "The Watchdog").
 
 All of them are driven by the FPGA's 100 MHz clock. Times are exact: a timer set for 1 ms gives 1 ms, not an approximation.
@@ -669,7 +670,6 @@ Each timer has a **COUNT** that goes down by 1 on each tick of its source. When 
 
 - STAT.UNDER is set.
 - If CTRL.IRQ is on, the timer requests an interrupt (TIMER0-TIMER3, sources 11-14, level 6).
-- If CTRL.DMA is on, the timer starts DMA channel CTRL.DMACH.
 - The next timer gets a tick, if it is counting this one (SRC 3).
 - In **repeating** mode (CTRL.REPEAT on), COUNT is loaded from **RELOAD** and counting goes on.
 - In **one-shot** mode (CTRL.REPEAT off), the timer stops: CTRL.EN clears itself and COUNT stays at 0.
@@ -687,10 +687,10 @@ Each timer has a **COUNT** that goes down by 1 on each tick of its source. When 
                                                     |  down by 1 per tick  |
                                                     +----------+-----------+
                                                                | tick at 0: underflow
-                         +---------------+---------------+-----+-----------+
-                         v               v               v                 v
-                  STAT.UNDER set   interrupt if    start DMA channel   tick for
-                                   CTRL.IRQ        DMACH if CTRL.DMA   next timer
+                         +---------------+---------------------+
+                         v               v                     v
+                  STAT.UNDER set   interrupt if            tick for
+                                   CTRL.IRQ                next timer
 
                  Figure 6: One general timer
 ```
@@ -720,17 +720,15 @@ PRESCALE matters only for SRC 0. Lines and frames come from the video timing, so
 
 ```
    TMRn CTRL
-    31            8   7   6   5   4   3   2   1   0
-   +---------------+-------+---+---+-------+---+---+
-   |    (unused)   | DMACH |DMA|IRQ|  SRC  |REP| EN|
-   +---------------+-------+---+---+-------+---+---+
+    31                    5   4   3   2   1   0
+   +-----------------------+---+-------+---+---+
+   |        (unused)       |IRQ|  SRC  |REP| EN|
+   +-----------------------+---+-------+---+---+
 
    EN      1 = running. Cleared by the timer at underflow in one-shot mode
    REPEAT  1 = repeating, 0 = one-shot
    SRC     0 = prescaled clock, 1 = lines, 2 = frames, 3 = previous timer
    IRQ     1 = interrupt at underflow
-   DMA     1 = start DMA channel DMACH at underflow
-   DMACH   DMA channel to start, 0-3
 
                  Figure 7: Timer control register
 ```
@@ -947,37 +945,13 @@ read_chain: move.l  TMR1+TMR_COUNT(a5),d0
 
 For measuring time, the time counter is usually simpler. A chained pair is useful as a very long countdown with an interrupt at the end.
 
----
-
-### Starting a DMA Channel
-
-A timer can start a channel of the DMA engine at each underflow, with no work by the CPU. Set CTRL.DMA and put the channel number in CTRL.DMACH. The start works like a CPU write of START to that channel's CHCTRL, so set up the channel's descriptor chain (CHDESC) first. This is independent of the interrupt: you can have either, both or neither.
-
-For example, to start DMA channel 2 every 5 ms, for instance to copy the next block of an audio stream:
-
-```asm
-            include "hw.inc"
-
-; Timer 3 starts DMA channel 2 every 5 ms. a5 = SYSTEM.
-; The channel's CHDESC must already point at its descriptors.
-dma_every_5ms:
-            move.l  #0,TMR3+TMR_CTRL(a5)
-            move.l  #99,TMR3+TMR_PRESCALE(a5)           ; 1 MHz
-            move.l  #4999,TMR3+TMR_RELOAD(a5)           ; 5000 us
-            move.l  #4999,TMR3+TMR_COUNT(a5)
-            move.l  #TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|TMR_CTRL_DMA_M|(2<<TMR_CTRL_DMACH_B),TMR3+TMR_CTRL(a5)
-            rts
-```
-
-STAT.UNDER is still set at each underflow. With CTRL.IRQ off it does no harm, but clear it before you later turn on CTRL.IRQ.
-
 ### General timer registers
 
 Timer n at `$140 + n x $20`:
 
 | Name | Offset | Access | Function |
 |------|--------|--------|----------|
-| TMR_CTRL | `+$00` | RW | EN (0), REPEAT (1), SRC (3-2), IRQ (4), DMA (5), DMACH (7-6). 0 after reset |
+| TMR_CTRL | `+$00` | RW | EN (0), REPEAT (1), SRC (3-2), IRQ (4). 0 after reset |
 | TMR_PRESCALE | `+$04` | RW | Bits 15-0: divide 100 MHz by PRESCALE + 1, for SRC 0 |
 | TMR_RELOAD | `+$08` | RW | Loaded into COUNT at each underflow in repeating mode |
 | TMR_COUNT | `+$0C` | RW | The count. Goes down by 1 a tick; writing sets it |
@@ -1087,7 +1061,7 @@ All registers are in the system block. Addresses are `SYSTEM` (`$F00000`) plus t
 |---------|------|--------|----------|
 | `$F00100` | TIMEHI | R | TIME 63-32; reading captures all 64 bits |
 | `$F00104` | TIMELO | R | TIME 31-0, from the capture |
-| `$F00140` | TMR0_CTRL | RW | EN (0), REPEAT (1), SRC (3-2), IRQ (4), DMA (5), DMACH (7-6) |
+| `$F00140` | TMR0_CTRL | RW | EN (0), REPEAT (1), SRC (3-2), IRQ (4) |
 | `$F00144` | TMR0_PRESCALE | RW | DIV (15-0): 100 MHz / (DIV + 1), for SRC 0 |
 | `$F00148` | TMR0_RELOAD | RW | Value loaded at each underflow, repeating mode |
 | `$F0014C` | TMR0_COUNT | RW | Current count |

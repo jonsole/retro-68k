@@ -20,14 +20,6 @@ module serial (
     output wire        cmd_reset,
     output wire        cmd_upload,
 
-    // DMA engine port 1 (spec 11, section 4): the CPU's own accesses go first
-    output wire        p_rxv,
-    output wire [7:0]  p_rxd,
-    input  wire        p_rxpop,
-    output wire        p_txr,
-    input  wire        p_txpush,
-    input  wire [7:0]  p_txd,
-
     // FT232H pins
     input  wire        ft_rxf_n,
     input  wire        ft_txe_n,
@@ -52,10 +44,8 @@ module serial (
     wire en = sercon[0];
 
     // ---------------------------------------------------------------- the engine
-    wire        rx_cpu = rb_rd && sel && off == `RM_SERDATA && rb_be[0];   // the low half takes a byte
-    wire        rx_pop = rx_cpu || p_rxpop;
-    wire        tx_cpu = rb_wr && sel && off == `RM_SERDATA && rb_be[0];
-    wire        tx_wr  = tx_cpu || p_txpush;
+    wire        rx_pop = rb_rd && sel && off == `RM_SERDATA && rb_be[0];   // the low half takes a byte
+    wire        tx_wr  = rb_wr && sel && off == `RM_SERDATA && rb_be[0];
 
     wire        fe_rx_valid, fe_rx_room, fe_tx_valid, fe_tx_pop, fe_tx_empty;
     wire [7:0]  fe_rx_byte, fe_tx_byte;
@@ -71,7 +61,7 @@ module serial (
         .fe_tx_empty(fe_tx_empty),
         .rx_valid(rx_valid), .rx_byte(rx_rdata), .rx_pop(rx_pop), .rx_new(rx_new),
         .rx_count(rx_count),
-        .tx_push(tx_wr), .tx_byte(tx_cpu ? rb_wdata[7:0] : p_txd), .tx_full(tx_full),
+        .tx_push(tx_wr), .tx_byte(rb_wdata[7:0]), .tx_full(tx_full),
         .tx_dropped(tx_dropped), .tx_space(tx_space),
         .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
         .cmd_key(), .key_byte()
@@ -84,10 +74,6 @@ module serial (
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
     );
-
-    assign p_rxv = rx_valid && !rx_cpu;
-    assign p_rxd = rx_rdata;
-    assign p_txr = en && !tx_full && !tx_cpu;
 
     // ---------------------------------------------------------------- interrupts
     wire s_rxready = (rxlevel != 0) && (rx_count >= rxlevel);

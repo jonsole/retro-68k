@@ -13,6 +13,8 @@ make run ARGS=+vcd        # waveform in build/tb.vcd
 make vtest                # video test: random pictures checked pixel by pixel (vtest/)
 make ctest                # copper test: a self-checking ROM, then the frame (ctest/)
 make atest                # audio test: every output sample against a Python model (atest/)
+make dtest                # blitter test: random jobs against a Python model, and directed tests (dtest/)
+make rastest              # rasteriser test: random lines and triangles against a Python model (rastest/)
 make run ARGS=+coptrace   # the copper's instructions and register writes
 ```
 

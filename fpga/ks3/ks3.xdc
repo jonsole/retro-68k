@@ -136,6 +136,12 @@ create_clock -name clk50 -period 20.000 [get_ports clock_50_i]
 set_clock_groups -asynchronous \
     -group [get_clocks -of_objects [get_pins clocks/mmcm_sys/CLKOUT*]] \
     -group [get_clocks -of_objects [get_pins clocks/mmcm_pix/CLKOUT*]]
+# Layer CTRL.TRANSP and PALOFS are read raw, every pixel, by the layer pixel
+# units (spec 4, section 5.4; retro-hw layer_pix spec 4.4): while they
+# change, one pixel may show a mix of the old and new bits. The clock
+# groups above cover the path already; this names it as deliberate.
+set_false_path -from [get_cells -hier -filter {NAME =~ sys/vid/l_ctrl_reg* && IS_SEQUENTIAL}] \
+    -to [get_clocks -of_objects [get_pins clocks/mmcm_pix/CLKOUT*]]
 set clk100 [get_clocks -of_objects [get_pins clocks/mmcm_sys/CLKOUT0]]
 set clk40  [get_clocks -of_objects [get_pins clocks/mmcm_sys/CLKOUT1]]
 

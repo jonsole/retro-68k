@@ -76,7 +76,7 @@ jobs:
         run: make -C sim atest
 
   dma-io:
-    name: DMA engine, SD card and keyboard tests
+    name: Blitter, rasteriser, SD card and keyboard tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +96,10 @@ jobs:
           tar xzf tools/vasm/vasm.tar.gz
           make -C vasm CPU=m68k SYNTAX=mot -j4 > /dev/null
           echo "$PWD/vasm" >> "$GITHUB_PATH"
-      - name: DMA engine, random jobs against the model, and directed tests
+      - name: Blitter, random jobs against the model, and directed tests
         run: make -C sim dtest
+      - name: Rasteriser, random lines and triangles against the model, and directed tests
+        run: make -C sim rastest
       - name: SD card and PS/2 keyboard against their models
         run: make -C sim iotest
 

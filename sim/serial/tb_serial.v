@@ -20,8 +20,7 @@ module tb_serial;
     reg  [31:0] rb_wdata = 0;
     reg  [3:0]  rb_be = 0;
     wire [31:0] rb_rdata;
-    wire        irq, cmd_break, cmd_reset, cmd_upload, p_rxv, p_txr;
-    wire [7:0]  p_rxd;
+    wire        irq, cmd_break, cmd_reset, cmd_upload;
 
     wire [7:0] ft_d;
     wire [7:0] ft_d_o;
@@ -32,7 +31,6 @@ module tb_serial;
                 .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
                 .rb_rdata(rb_rdata), .irq(irq),
                 .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
-                .p_rxv(p_rxv), .p_rxd(p_rxd), .p_rxpop(1'b0), .p_txr(p_txr), .p_txpush(1'b0), .p_txd(8'h00),
                 .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d), .ft_d_o(ft_d_o), .ft_d_oe(ft_d_oe),
                 .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n));
     ft232h_model ft (.d(ft_d), .rxf_n(ft_rxf_n), .txe_n(ft_txe_n), .rd_n(ft_rd_n), .wr_n(ft_wr_n), .siwu_n(ft_siwu_n));

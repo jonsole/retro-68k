@@ -18,7 +18,7 @@ The design is installed as an extra core on the Next, next to the normal Next co
 | R4 | Video output is HDMI/DVI and VGA; one mode, 576p (720×576 at 50 Hz, CEA-861, 27 MHz); every line exactly 320 memory slots, so the display's DMA repeats the same way on every line | decided (version 1) |
 | R5 | Audio: 4 Paula-style 8-bit sample channels | decided (version 1) |
 | R6 | Usable as a home computer: boots to a monitor, then BASIC; PS/2 keyboard; SD card | decided ("both") |
-| R7 | Usable as a game/demo machine: bitmap layers with scrolling, a copper, a DMA engine for copies and fills, sprites | decided ("both") |
+| R7 | Usable as a game/demo machine: bitmap layers with scrolling, a copper, a blitter for copies and fills, sprites | decided ("both") |
 | R8 | Hardware = the ZX Spectrum Next KS3, already owned | decided |
 
 ## 2. Key decisions
@@ -44,7 +44,7 @@ Checked against the official Next FPGA sources (`zxnext_top_issue5.vhd` and `zxn
 | Config flash | Core slots: slot 0 anti-brick, slot 1 the Next core, more for other cores | Installing the design |
 
 What this means:
-- **The SRAM is fast enough to give the CPU its own memory cycle in every 100 ns slot**, so the CPU normally never waits for the display, audio, copper or DMA engine (D5); as on the Amiga, a bitplane fetch that would otherwise be late takes the CPU's cycle. There is no Fast RAM: all RAM is Chip RAM.
+- **The SRAM is fast enough to give the CPU its own memory cycle in every 100 ns slot**, so the CPU normally never waits for the display, audio, copper or blitter (D5); as on the Amiga, a bitplane fetch that would otherwise be late takes the CPU's cycle. There is no Fast RAM: all RAM is Chip RAM.
 - **Block RAM is 225 KB**, still too small for a 720×576×8bpp frame buffer (405 KB) plus everything else, so video memory stays in Chip RAM and is fetched just in time by DMA, as planned. The palette stays in block RAM; there is no text mode (the boot ROM's font is in the ROM).
 - **No LEDs or switches.** The boot ROM shows start-up progress and errors as the screen's background colour (as the Amiga did) and on the serial console. Start-up options come from keys held during reset and the DivMMC button (spec 7).
 - **Toolchain is Vivado** (the free edition covers the XC7A35T), scripted with Tcl in batch mode, on Linux or Windows.
@@ -83,15 +83,15 @@ The full list is in spec 7, section 8.
 
 Defined in [spec 5: memory architecture](spec/memory-architecture.md). In short:
 
-- **Amiga-style slots.** SRAM time is cut into 100 ns slots of 5 memory cycles (20 ns, 2 bytes each). **Cycle 0 of every slot belongs to the CPU**; cycles 1 and 3 to the display fetch; cycle 2 to audio and peripherals; cycle 4 is the free pool for the copper and the DMA engine. Cycles their owner doesn't use, including the CPU's, go to the free pool too.
-- **The 20 MHz CPU waits for Chip RAM only when the display needs it:** one DMA scheduler (`dmac.v`, like the Amiga's Agnus) gives out every cycle; an urgent bitplane fetch, or a copper set to "nasty" priority, may take the CPU's cycle 0, and that CPU access then waits one slot (spec 5, section 6).
+- **Amiga-style slots.** SRAM time is cut into 100 ns slots of 5 memory cycles (20 ns, 2 bytes each). **Cycle 0 of every slot belongs to the CPU**; cycles 1 and 3 to the display fetch; cycle 2 to audio and peripherals; cycle 4 is the free pool for the copper and the blitter. Cycles their owner doesn't use, including the CPU's, go to the free pool too. The plan is programmable (MEMSLOT0–4, spec 5, section 8.1).
+- **The 20 MHz CPU waits for Chip RAM only when the display needs it:** one DMA scheduler (`dmac.v`, like the Amiga's Agnus) gives out every cycle; an urgent bitplane fetch may take the CPU's cycle 0, and that CPU access then waits one slot; a copper set to "nasty" priority owns cycle 0 while it asks (spec 5, section 6).
 - **Chip RAM** = the 4 MB SRAM, shared with DMA. 100 MB/s in total.
 
 | Range | Size | Device |
 |-------|------|--------|
 | `0x000000`–`0x3FFFFF` | 4 MB | Chip RAM (boot ROM overlays address 0 at reset) |
 | `0x400000`–`0xDFFFFF` | | Reserved (bus error) |
-| `0xE00000`–`0xE0FFFF` | 64 KB | Custom registers: video, audio, DMA engine, copper; palettes at `0xE04000`–`0xE04FFF` |
+| `0xE00000`–`0xE0FFFF` | 64 KB | Custom registers: video, audio, blitter, copper; palettes at `0xE04000`–`0xE04FFF` |
 | `0xF00000`–`0xF0FFFF` | 64 KB | System: USB serial, timers, interrupts, SD, keyboard |
 | `0xF80000`–`0xF87FFF` | 32 KB | Boot ROM (block RAM) |
 
@@ -124,7 +124,7 @@ Defined in [spec 13: interrupt controller](spec/interrupts.md). Every source has
 | 7 | NMI: Multiface button, USB "break" |
 | 6 | Timers 0–3 |
 | 5 | Video: vertical blank, line compare, video errors (OVERRUN) |
-| 4 | DMA engine; audio channels, errors |
+| 4 | Blitter; audio channels, errors |
 | 3 | USB serial |
 | 2 | Keyboard |
 | 1 | Software interrupt |
@@ -173,7 +173,7 @@ The XC7A35T has 100 blocks of 18 Kb (2 KB each).
 | Keyboard byte FIFO | 1 | Spec 16 |
 | **Total** | **24 of 100** | |
 
-The boot ROM holds the console font (4 KB). Audio, the copper, the DMA engine and the SD card need no block RAM. The SRAM works from the first build, so no temporary block-RAM main memory is needed. The spare blocks leave room for a bigger boot ROM.
+The boot ROM holds the console font (4 KB). Audio, the copper, the blitter and the SD card need no block RAM. The SRAM works from the first build, so no temporary block-RAM main memory is needed. The spare blocks leave room for a bigger boot ROM.
 
 ## 3. Specs to write before code
 
@@ -208,7 +208,7 @@ Each phase ends with a test that shows it is done.
 | **3. Computer on the board** | The same design built for the KS3; boot monitor (memory dump/edit, load over USB, run) | "hello" on a real monitor and over USB; full 4 MB RAM test passes at 20 MHz with display on |
 | **4. Video** | Bitmap layers (planar and chunky), palette, scroll, direct colour, interrupts; then the copper | Demo program runs all layer formats |
 | **5. Audio** | 4 Paula-style channels | Module-style playback |
-| **6. DMA engine** | Copies and fills, 1D and 2D | Speed figures of spec 11 measured on the board |
+| **6. Blitter** (was the DMA engine) | Copies and fills, 1D and 2D | Speed figures of spec 11 measured on the board |
 | **7. Home computer** | SD card, PS/2 keyboard, EhBASIC | Boot to BASIC, load and save a program |
 | **8. Next core** | Package the design as a Next core and install it in a flash slot | The KS3 boots the 68000 computer from its core menu, and still boots the Next |
 

@@ -1,19 +1,23 @@
 // Video (spec 4): 576p (720x576 at 50 Hz, CEA-861, 27 MHz), four 256-colour
 // palettes (one per layer, one for the sprites), background colour,
 // three bitmap layers (chunky 1/2/4/8 bpp or planar 1-8 planes, Amiga-style:
-// plane pointers, modulo and data registers, bpldma.v), priority, beam
-// position, VBLANK, LINE and OVERRUN.
+// plane pointers, stride and data registers, fetched by retro-hw's
+// layer_fetch.v), priority, beam position, VBLANK, LINE and OVERRUN.
 // Also DMACON (spec 5, section 8), which sits in this register block.
 //
 // Two clock domains, asynchronous to each other:
 //   clk     100 MHz: registers, bitplane DMA, palette writes, interrupts
 //   clk_pix  27 MHz: the beam and the pixel pipeline
 // Crossings: events are toggles through two flip-flops; the data registers
-// cross under the full/taken handshake (bpldma.v, layer_pix.v); the beam
-// position is sampled until two samples agree; layer settings, PRIO,
-// BGCOLOR and VIDCON are settings, copied into the pixel domain once per
-// line (a write that lands exactly on that copy may take effect one line
-// later, or show for one line in part); the palette is a two-clock RAM.
+// cross under the full/taken handshake (layer_fetch.v, layer_pix.v), with
+// each group's depth, planar flag and scale (gset); the beam position is
+// sampled until two samples agree; the layers' line settings (EN, VSCALE,
+// the windows, SCROLLX), PRIO, BGCOLOR and VIDCON are settings, copied
+// into the pixel domain once per line (a write that lands exactly on that
+// copy may take effect one line later, or show for one line in part);
+// CTRL.TRANSP and PALOFS are read raw by the pixel side (spec 4, section
+// 5.4: one pixel may show a mix while they change; a false path in the
+// constraints); the palette is a two-clock RAM.
 `include "regmap.vh"
 
 module video (
@@ -25,7 +29,7 @@ module video (
     input  wire [23:2] rb_addr,
     input  wire [31:0] rb_wdata,
     input  wire [3:0]  rb_be,
-    input  wire [1:0]  rb_who,         // who writes: 0 the CPU, 1 the copper, 2 the DMA engine
+    input  wire        rb_cop,         // the copper writes (else the CPU)
     output wire [31:0] rb_rdata,
 
     output wire        irq_vblank,
@@ -36,11 +40,13 @@ module video (
     output wire [10:0] beam_v,         // the beam position, memory side (for the copper)
     output wire [10:0] beam_h,
 
-    // DMACON, and the display fetch port of the SRAM controller
+    // DMACON, the memory slot plan (MEMSLOT0-4: slot n in bits 8n+7..8n,
+    // its owners in 6..0 and its lock in 7; spec 5, section 8.1), and the
+    // display fetch port of the SRAM controller
     output reg  [15:0] dmacon,
+    output reg  [39:0] memplan,
     output wire        disp_req,
     output wire        disp_urgent,
-    output wire [9:0]  disp_deadline,
     output wire [21:1] disp_addr,
     input  wire        disp_ack,
     input  wire        disp_rvalid,
@@ -49,7 +55,6 @@ module video (
     // The sprite fetcher's port (spec 9; the same read data)
     output wire        spr_req,
     output wire        spr_urgent,
-    output wire [9:0]  spr_deadline,
     output wire [21:1] spr_addr,
     input  wire        spr_ack,
     input  wire        spr_rvalid,
@@ -86,6 +91,8 @@ module video (
     wire [8:0] blk = off[15:7];                                // layers: 2, 3, 4
     wire sel_lay   = in_custom && (blk >= 9'd2) && (blk <= 9'd4) && (off[6:5] == 2'b00);
     wire [1:0] ln  = blk[1:0] - 2'd2;
+    wire sel_pt    = in_custom && (blk >= 9'd2) && (blk <= 9'd4) && (off[6:5] == 2'b01);   // BPL0PT-BPL7PT
+    wire sel_dat   = in_custom && (blk >= 9'd2) && (blk <= 9'd4) && (off[6:5] == 2'b10);   // BPL0DAT-BPL7DAT
     wire sel_pal   = in_custom && (off[15:12] == 4'h4);        // 0x4000-0x4FFF: PALETTE0-2, SPRPALETTE
 
     reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
@@ -95,10 +102,15 @@ module video (
     reg  [23:0] bgcolor;
     reg  [5:0]  prio;
 
-    // Layers 0-2: CTRL, window, fine scroll (pointers, modulo and data are in bpldma.v)
+    // Layers 0-2: CTRL, window, fine scroll, BPLSTRIDE, BPLDMA (the pointers
+    // and data registers are in the layer fetch, below)
     reg  [23:0] l_ctrl [0:2];
     reg  [10:0] l_xs [0:2], l_xe [0:2], l_ys [0:2], l_ye [0:2];
     reg  [3:0]  l_sx [0:2];
+    reg  [15:0] l_mod [0:2];           // BPLSTRIDE (bit 0 is 0)
+    reg  [7:0]  l_pm [0:2];            // BPLDMA: a DMA enable a plane (chunky: bit 0 for the layer)
+    wire [22:0] ptr_rdata;             // the pointer the bus addresses (from the layer fetch);
+                                       // the data registers are write-only (DATREAD 0)
 
     // From the pixel domain
     reg  [10:0] p_hc, p_vc;            // beam position (pixel domain)
@@ -142,10 +154,13 @@ module video (
                 l_ctrl[i] <= 24'd0;
                 l_xs[i] <= BH0;  l_xe[i] <= HTOT;  l_ys[i] <= BV0;  l_ye[i] <= VTOT;
                 l_sx[i] <= 4'd0;
+                l_mod[i] <= 16'd0;
+                l_pm[i] <= 8'hFF;      // every plane's DMA on
                 ov_s[i] <= 2'b00;
             end
             vb_s <= 2'b00; ln_s <= 2'b00;
             dmacon <= 16'd0;
+            memplan <= 40'h00_03_04_03_10;   // the default plan: CPU; layers, sprites; audio; layers, sprites; none
         end else begin
             for (i = 0; i < 3; i = i + 1) begin
                 ov_s[i] <= {ov_s[i][0], ov_t[i]};
@@ -168,6 +183,11 @@ module video (
                     5'h08: begin v = merge({5'd0, l_ys[ln], 5'd0, l_ye[ln]}, rb_wdata, rb_be);
                                  l_ys[ln] <= v[26:16]; l_ye[ln] <= v[10:0]; end
                     5'h0C: if (rb_be[0]) l_sx[ln] <= rb_wdata[3:0];
+                    5'h10: begin v = merge({16'd0, l_mod[ln]}, rb_wdata, rb_be); l_mod[ln] <= {v[15:1], 1'b0}; end
+                    5'h14: if (rb_be[1:0] == 2'b11) begin                  // set/clear (spec 3, rule 6)
+                        if (rb_wdata[15]) l_pm[ln] <= l_pm[ln] |  rb_wdata[7:0];
+                        else              l_pm[ln] <= l_pm[ln] & ~rb_wdata[7:0];
+                    end
                     default: ;
                 endcase
             end
@@ -184,6 +204,11 @@ module video (
                         if (rb_wdata[15]) dmacon <= dmacon | (rb_wdata[14:0] & 15'h03EF);
                         else              dmacon <= dmacon & ~(rb_wdata[14:0] & 15'h03EF);
                     end
+                    `RM_MEMSLOT0: if (rb_be[0]) memplan[7:0]   <= rb_wdata[7:0];
+                    `RM_MEMSLOT1: if (rb_be[0]) memplan[15:8]  <= rb_wdata[7:0];
+                    `RM_MEMSLOT2: if (rb_be[0]) memplan[23:16] <= rb_wdata[7:0];
+                    `RM_MEMSLOT3: if (rb_be[0]) memplan[31:24] <= rb_wdata[7:0];
+                    `RM_MEMSLOT4: if (rb_be[0]) memplan[39:32] <= rb_wdata[7:0];
                     default: ;
                 endcase
             end
@@ -195,8 +220,11 @@ module video (
             5'h04: reg_q <= {5'd0, l_xs[ln], 5'd0, l_xe[ln]};
             5'h08: reg_q <= {5'd0, l_ys[ln], 5'd0, l_ye[ln]};
             5'h0C: reg_q <= {28'd0, l_sx[ln]};
+            5'h10: reg_q <= {16'd0, l_mod[ln]};
+            5'h14: reg_q <= {24'd0, l_pm[ln]};
             default: ;
         endcase
+        if (rb_rd && sel_pt)  reg_q <= {9'd0, ptr_rdata};
         if (rb_rd && sel_glob) case (off)
             `RM_VIDCON:     reg_q <= {26'd0, vidcon};
             `RM_VIDSTAT:    reg_q <= {23'd0, p_invblank, vidstat};
@@ -208,6 +236,11 @@ module video (
             `RM_PRIO:       reg_q <= {26'd0, prio};
             `RM_VIDSIZE:    reg_q <= {5'd0, VVIS, 5'd0, HVIS};
             `RM_DMACON:     reg_q <= {16'd0, dmacon};
+            `RM_MEMSLOT0:   reg_q <= {24'd0, memplan[7:0]};
+            `RM_MEMSLOT1:   reg_q <= {24'd0, memplan[15:8]};
+            `RM_MEMSLOT2:   reg_q <= {24'd0, memplan[23:16]};
+            `RM_MEMSLOT3:   reg_q <= {24'd0, memplan[31:24]};
+            `RM_MEMSLOT4:   reg_q <= {24'd0, memplan[39:32]};
             default: ;
         endcase
     end
@@ -242,25 +275,25 @@ module video (
     // that writer's next write to the same entry's low half, which writes
     // red with green and blue. A write to both halves at once (or a low
     // half alone, keeping red) goes in as it is.
-    reg        hv [0:2];               // a high half is held ...
-    reg  [9:0] ha [0:2];               // ... for this entry
-    reg  [7:0] hr [0:2];               // ... red
+    reg        hv [0:1];               // a high half is held (0 the CPU's, 1 the copper's) ...
+    reg  [9:0] ha [0:1];               // ... for this entry
+    reg  [7:0] hr [0:1];               // ... red
     wire       w_hi  = rb_wr && sel_pal && rb_be[3:2] != 2'b00 && rb_be[1:0] == 2'b00;
     wire       w_lo  = rb_wr && sel_pal && rb_be[1:0] != 2'b00;
-    wire       h_hit = (rb_who != 2'd3) && hv[rb_who] && ha[rb_who] == pal_a;
+    wire       h_hit = hv[rb_cop] && ha[rb_cop] == pal_a;
     wire       w_r   = w_lo && (rb_be[2] || h_hit);                  // red is written
-    wire [7:0] w_rv  = rb_be[2] ? rb_wdata[23:16] : hr[rb_who];
-    initial begin hv[0] = 1'b0; hv[1] = 1'b0; hv[2] = 1'b0; end
+    wire [7:0] w_rv  = rb_be[2] ? rb_wdata[23:16] : hr[rb_cop];
+    initial begin hv[0] = 1'b0; hv[1] = 1'b0; end
     always @(posedge clk) begin
         if (rst) begin
-            hv[0] <= 1'b0; hv[1] <= 1'b0; hv[2] <= 1'b0;
-        end else if (rb_who != 2'd3) begin
+            hv[0] <= 1'b0; hv[1] <= 1'b0;
+        end else begin
             if (w_hi) begin
-                hv[rb_who] <= rb_be[2];
-                ha[rb_who] <= pal_a;
-                hr[rb_who] <= rb_wdata[23:16];
+                hv[rb_cop] <= rb_be[2];
+                ha[rb_cop] <= pal_a;
+                hr[rb_cop] <= rb_wdata[23:16];
             end else if (w_lo && h_hit)
-                hv[rb_who] <= 1'b0;
+                hv[rb_cop] <= 1'b0;
         end
     end
     always @(posedge clk) if (w_lo) begin
@@ -279,8 +312,7 @@ module video (
     reg pal_hit;
     always @(posedge clk) pal_hit <= rb_rd && sel_pal;
 
-    wire [31:0] dma_q;
-    assign rb_rdata = reg_q | dma_q | spr_q | (pal_hit ? {8'd0, pal_qa} : 32'd0);
+    assign rb_rdata = reg_q | spr_q | (pal_hit ? {8'd0, pal_qa} : 32'd0);
 
     // ================================================================ pixel domain
     reg [1:0] rst_p;
@@ -336,7 +368,11 @@ module video (
     end
 
     // ---- settings for the next line, worked out in the horizontal blank
-    // (clocks HVIS to HVIS + 2), then handed to the DMA and the layer units
+    // (clocks HVIS to HVIS + 2), then handed to the layer fetch and the
+    // layer units. CTRL's depth, PLANAR and HSCALE go to the fetch live (it
+    // takes them at each group's start and passes them on with the group);
+    // TRANSP and PALOFS go to the layer units live. HSCALE is also read
+    // here, once a line, for the line's group count.
     wire [10:0] next_line = vlast ? 11'd0 : vc + 1'b1;
     // The windows (in beam coordinates) on the picture: clamped to it, then picture-relative
     function [10:0] tox(input [10:0] v);
@@ -357,16 +393,12 @@ module video (
     reg  [2:0]  b_act, b_adv;
     reg  [3:0]  n_pos0 [0:2];
     reg  [11:0] n_groups [0:2];
-    reg  [2:0]  f_act, f_adv, f_chunky;
+    reg  [2:0]  f_act, f_adv;
     reg  [11:0] f_groups [0:2];
-    reg  [2:0]  f_planes [0:2];
-    reg  [1:0]  f_hs [0:2];
-    // This line's settings, for the layer units
-    reg  [2:0]  c_act, c_planar, c_transp;
+    // This line's settings, for the layer units (and the depth, for direct colour)
+    reg  [2:0]  c_act;
     reg  [10:0] c_xs [0:2], c_xe [0:2];
-    reg  [1:0]  c_lb [0:2], c_hs [0:2];
-    reg  [2:0]  c_planes [0:2];
-    reg  [3:0]  c_pos0 [0:2], c_palofs [0:2];
+    reg  [3:0]  c_pos0 [0:2];
 
     always @(posedge clk_pix) begin : setup
         integer n;
@@ -407,37 +439,46 @@ module video (
             c_act  <= b_act;
             for (n = 0; n < 3; n = n + 1) begin
                 f_groups[n] <= n_groups[n];
-                f_planes[n] <= l_ctrl[n][1] ? l_ctrl[n][18:16] : (3'd1 << l_ctrl[n][3:2]) - 1'b1;
-                f_chunky[n] <= !l_ctrl[n][1];
-                f_hs[n]     <= l_ctrl[n][7:6];
                 c_xs[n]     <= w_xs[n];
                 c_xe[n]     <= w_xe[n];
-                c_planar[n] <= l_ctrl[n][1];
-                c_lb[n]     <= l_ctrl[n][3:2];
-                c_transp[n] <= l_ctrl[n][4];
-                c_hs[n]     <= l_ctrl[n][7:6];
-                c_palofs[n] <= l_ctrl[n][15:12];
-                c_planes[n] <= l_ctrl[n][18:16];
                 c_pos0[n]   <= n_pos0[n];
             end
         end
     end
 
-    // ---- bitplane DMA and registers (100 MHz)
+    // ---- the layer fetch (100 MHz): retro-hw's layer_fetch.v (spec 4,
+    // sections 4.4 and 5). It keeps the pointers (BPLxPT) and the data
+    // registers (BPLxDAT); the rest of the layers' registers are above.
+    // A pointer write of some bytes is merged with the pointer as it is.
     wire [383:0] dat;
+    wire [17:0]  gset;                 // each group's {hscale, depth, planar}, a layer
     wire [2:0]   fill_t, take_t;
     wire         line_go, line_gen;
-    bpldma dma (
+    wire [4:0]   pd_sel = {ln, off[4:2]};                  // {layer, plane or register}
+    wire [22:0]  ptr_wdata = {rb_be[2] ? rb_wdata[22:16] : ptr_rdata[22:16],
+                              rb_be[1] ? rb_wdata[15:8]  : ptr_rdata[15:8],
+                              rb_be[0] ? rb_wdata[7:1]   : ptr_rdata[7:1], 1'b0};
+    // Words a group - 1: planes - 1 (planar), or bits a pixel - 1 (chunky: 0, 1, 3, 7)
+    function [2:0] depth_of(input [23:0] c);
+        depth_of = c[1] ? c[18:16] : (3'd1 << c[3:2]) - 1'b1;
+    endfunction
+    layer_fetch #(.NL(3), .AW(21), .PW(23), .PLANAR(1), .TILES(0), .DATWRITE(1), .DATREAD(0), .LITTLE(0),
+                  .URG_BASE(15), .URG_WORD(5)) lf (
         .clk(clk), .rst(rst), .enable(fetch_en),
-        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
-        .rb_rdata(dma_q),
-        .line_t(line_t), .act(f_act), .adv(f_adv),
-        .planes({f_planes[2], f_planes[1], f_planes[0]}), .chunky(f_chunky), .hscale({f_hs[2], f_hs[1], f_hs[0]}),
+        .line_t(line_t), .line_go(line_go), .line_gen(line_gen),
+        .act(f_act), .adv(f_adv),
+        .depth({depth_of(l_ctrl[2]), depth_of(l_ctrl[1]), depth_of(l_ctrl[0])}),
+        .planar({l_ctrl[2][1], l_ctrl[1][1], l_ctrl[0][1]}),
+        .hscale({l_ctrl[2][7:6], l_ctrl[1][7:6], l_ctrl[0][7:6]}),
         .wrap({l_ctrl[2][23:20], l_ctrl[1][23:20], l_ctrl[0][23:20]}),
+        .stride({l_mod[2], l_mod[1], l_mod[0]}),
         .ngroups({f_groups[2], f_groups[1], f_groups[0]}),
-        .line_go(line_go), .line_gen(line_gen),
-        .dat(dat), .fill_t(fill_t), .take_t(take_t),
-        .req(disp_req), .urgent(disp_urgent), .deadline(disp_deadline), .addr(disp_addr), .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
+        .tile(3'd0), .mapw(6'd0), .ty(30'd0), .tcol(21'd0), .mappt(69'd0), .patpt(69'd0),
+        .ptr_sel(pd_sel), .ptr_wr(rb_wr && sel_pt), .ptr_wdata(ptr_wdata), .ptr_rdata(ptr_rdata),
+        .dat_wr(rb_wr && sel_dat), .dat_sel(pd_sel), .dat_wdata(rb_wdata[15:0]), .dat_be(rb_be[1:0]),
+        .dma_en({l_pm[2], l_pm[1], l_pm[0]}), .dat_rdata(),
+        .dat(dat), .attr(), .gset(gset), .fill_t(fill_t), .take_t(take_t),
+        .req(disp_req), .urgent(disp_urgent), .addr(disp_addr), .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
 
     // ---- sprites (spec 9): the fetcher and FIFOs (100 MHz), and a unit per sprite
@@ -449,7 +490,7 @@ module video (
     wire [31:0] sp_pal;
     wire [39:0] sp_ra;
     wire [127:0] sp_rd;
-    wire [47:0] sp_wpg, sp_rpg;
+    wire [47:0] sp_wpg, sp_rp;
     wire [7:0]  sp_fl, sp_fla;
     reg  [31:0] coll_acc, coll_line;
     reg         coll_t;
@@ -457,11 +498,11 @@ module video (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be), .rb_rdata(spr_q),
         .dmacon(dmacon), .vblank(frame_tick), .beam_v(s_vc), .beam_h(s_hc),
-        .mem_req(spr_req), .mem_addr(spr_addr), .mem_deadline(spr_deadline), .mem_urgent(spr_urgent),
+        .mem_req(spr_req), .mem_addr(spr_addr), .mem_urgent(spr_urgent),
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
         .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
         .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),
-        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp_g(sp_rpg), .flush_t(sp_fl), .flush_ack_t(sp_fla),
+        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp(sp_rp), .flush_t(sp_fl), .flush_ack_t(sp_fla),
         .coll_line(coll_line), .coll_t(coll_t)
     );
 
@@ -494,11 +535,12 @@ module video (
     generate for (sg = 0; sg < 8; sg = sg + 1) begin : sprs
         wire [5:0] rpb;
         assign sp_ra[5*sg +: 5] = rpb[4:0];
+        assign sp_rp[6*sg +: 6] = rpb;
         sprite_pix u (
             .clk_pix(clk_pix), .en(en_p), .t(st_now),
             .act(c_sact[sg]), .hs(c_shs[sg]), .xe(c_sxe[sg]), .lb(c_slb[sg]),
             .xstep(c_sxs[sg]), .pal(c_spal[sg]), .dma(c_sdma[sg]),
-            .head(sp_rd[16*sg +: 16]), .rp(rpb), .rp_g(sp_rpg[6*sg +: 6]), .wp_g(sp_wpg[6*sg +: 6]),
+            .head(sp_rd[16*sg +: 16]), .rp(rpb), .wp_g(sp_wpg[6*sg +: 6]),
             .flush_t(sp_fl[sg]), .flush_ack_t(sp_fla[sg]),
             .opaque(s_op[sg]), .idx(s_idx[sg]), .underrun_t(p_un[sg])
         );
@@ -507,6 +549,7 @@ module video (
     // ---- layer units: their output is stage 1
     wire [2:0] bl_op;
     wire [7:0] bl_idx [0:2], bl_raw [0:2];
+    wire [3:0] bl_rgs [0:2];           // raw's group: {planar, depth} (bits a pixel - 1)
     // The layer units may take this line's first group once the DMA has
     // restarted (line_gen caught up) and the handshake has crossed back
     reg  [1:0] lg_s;
@@ -516,11 +559,11 @@ module video (
     generate for (g = 0; g < 3; g = g + 1) begin : lay
         layer_pix #(.PLANAR(1), .TILES(0)) u (
             .clk_pix(clk_pix), .clk_pix5(clk_pix5), .en(en_p), .hc(hc), .hn(hn), .line_start(hc == HVIS), .ready(buf_ready),
-            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .planar(c_planar[g]), .lb(c_lb[g]),
-            .planes(c_planes[g]), .hs(c_hs[g]), .pos0(c_pos0[g]), .transp(c_transp[g]),
-            .palofs(c_palofs[g]), .tile(1'b0),
-            .dat(dat[128*g +: 128]), .attr(10'd0), .fill_t(fill_t[g]), .take_t(take_t[g]),
-            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .pri(), .overrun_t(ov_t[g])
+            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .pos0(c_pos0[g]),
+            .transp(l_ctrl[g][4]), .palofs(l_ctrl[g][15:12]),      // live, raw from the 100 MHz side
+            .tile(1'b0), .dat(dat[128*g +: 128]), .attr(10'd0), .gset(gset[6*g +: 6]),
+            .fill_t(fill_t[g]), .take_t(take_t[g]),
+            .opaque(bl_op[g]), .idx(bl_idx[g]), .raw(bl_raw[g]), .raw_gs(bl_rgs[g]), .pri(), .overrun_t(ov_t[g])
         );
     end endgenerate
 
@@ -547,10 +590,11 @@ module video (
                 if (k * d < 8) widen = widen | (top >> (k * d));
         end
     endfunction
+    // (each pixel's bits, from the group it came from: spec 4, section 4.9)
     wire [3:0] depth [0:2];
     reg  [7:0] ch2 [0:2];
     generate for (g = 0; g < 3; g = g + 1) begin : dep
-        assign depth[g] = c_planar[g] ? {1'b0, c_planes[g]} + 4'd1 : 4'd1 << c_lb[g];
+        assign depth[g] = {1'b0, bl_rgs[g][2:0]} + 4'd1;
     end endgenerate
 
     // Collisions (spec 9, section 6): gathered over a line, handed to the

@@ -41,7 +41,7 @@ The KS3 build makes its clocks from the board's 50 MHz oscillator with two MMCMs
 | Pixel clock | 27 MHz | MMCM 2 (50 ÷ 5 × 108 = VCO 1080 MHz, ÷ 40) | Video |
 | HDMI serialiser | 135 MHz | MMCM 2 (÷ 8) | Double-rate serialisers (OSERDESE2): 10 bits per pixel |
 
-Both MMCMs run from the same oscillator, so the frequencies are exact: one 576p line (864 pixels at 27 MHz) is exactly 32 µs, which is 3200 system clocks or **320 memory slots**. The phase between the pixel clock and the system clock is fixed once the MMCMs have locked, but it is not known, so the design treats them as **asynchronous clock domains**: events cross as toggles through two flip-flops, the data registers cross under the full/taken handshake (section 5.1), the beam position is sampled until two samples agree, and the layer settings are copied once per line.
+Both MMCMs run from the same oscillator, so the frequencies are exact: one 576p line (864 pixels at 27 MHz) is exactly 32 µs, which is 3200 system clocks or **320 memory slots**. The phase between the pixel clock and the system clock is fixed once the MMCMs have locked, but it is not known, so the design treats them as **asynchronous clock domains**: events cross as toggles through two flip-flops, the data registers cross under the full/taken handshake (section 5.1) with each group's depth, planar mode and scale, the beam position is sampled until two samples agree, the layers' line settings are copied once per line, and CTRL.TRANSP and PALOFS are read raw by the pixel side (section 5.4).
 
 Nothing in the design relies on the 320-slot coincidence or on the phase, so a later mode can use any pixel clock MMCM 2 can make (for example 25.175 MHz for exact 640×480, 74.25 MHz for 720p), at build time or through the MMCM's reconfiguration port. The display's bandwidth stays 40 MB/s, so the budget per pixel (section 5.2) scales with the pixel rate: 1.48 bytes per pixel at 27 MHz, about 0.54 at 74.25 MHz. Section 5.6 has the crossing timing.
 
@@ -138,13 +138,14 @@ A window is clamped to the picture: a start in the blank counts as the picture's
 | BPLSTRIDE | 16, signed (even) | Bytes from the start of one line to the start of the next (the row stride), for every pointer of the layer. Unlike the Amiga's BPL1MOD/BPL2MOD, it does not depend on how many words are fetched |
 | SCROLLX | 4 | Fine scroll: pixels (0–15) skipped at the start of each line, as the Amiga's BPLCON1 delay |
 
-- **How the pointers move.** Each word fetched moves its pointer on by 2. The line's first word from a pointer saves the pointer: the line's start. The line's last word from it sets the pointer to **that start + BPLSTRIDE**. So at the end of each line inside the layer's window, each pointer the layer uses is at its line's start + BPLSTRIDE, however many words were fetched: whole groups, the extra group of fine scroll and the window width make no difference, and software never adjusts for them.
-- **One path for every move.** A pointer changes only when a word is fetched from it, or when the CPU or copper writes it. A write wins over the display's own change in the same clock, and also sets the pointer's saved line start. A pointer written between the layer's last fetch on line L and the start of the horizontal blank is line L + 1's start, as written (split screens).
-- **When BPLSTRIDE is read:** with the line's last fetch, about two groups (32 source pixels) before the layer's window ends (the line's last group is fetched as the shifters start on the group before it). A value written at the start of a line, or in the horizontal blank before it, applies at the end of that line.
+- **How the pointers move.** Each pointer has a saved line start. Each word fetched moves the pointer on by 2. At the start of the next line's horizontal blank, every pointer a word was fetched from since its last reset or write is reset to **its line start + BPLSTRIDE**, which is also the new line start. So at the start of each line, each pointer the layer uses is at its line's start + BPLSTRIDE, however many words were fetched: whole groups, the extra group of fine scroll, the window width, a depth changed part way along the line and a line that ran short make no difference, and software never adjusts for them. A pointer no word was fetched from (a plane with its DMA off or past the layer's depth, a layer not shown on the line) is left alone.
+- **Writes.** A CPU or copper write sets the pointer and its saved line start, and wins over the display's own change in the same clock. A pointer written **after the layer's last fetch on line L** (in the right border or the horizontal blank, before line L + 1's fetch starts) is line L + 1's start, as written: that is how split screens are made. A pointer written **while the layer is still fetching line L** is used from the next word fetched (one or two groups past the beam), and the words fetched after it make it line L + 1's start + BPLSTRIDE, that is, the value written + BPLSTRIDE (on a repeated line of a vertically scaled layer, the value written).
+- **Reading a pointer** gives its live value. Between the layer's last fetch on a line and the start of the next line's horizontal blank that is the end of the line's words, not the next line's start. A write of only one half (or byte) of a pointer merges with the live value, so in that gap, or while the layer is fetching, **write both halves**: the copper's `CMOVEL` (two MOVEs, the high half first) and a CPU long-word write do.
+- **When BPLSTRIDE is read:** at the start of the next line's horizontal blank, when the pointers are reset. A value written at any time during a line, or in the horizontal blank before it, applies at the end of that line.
 - **The pointers are not reset by the hardware.** As on the Amiga, the copper (spec 10) writes them at the start of every frame, normally in the vertical blank (or the CPU does it in its VBLANK interrupt). If nothing rewrites them, the next frame carries on through memory.
 - Vertical scrolling and coarse horizontal scrolling are done by changing the pointers. Split screens are done by writing new pointers mid-frame.
 - BPLSTRIDE = the row's bytes shows a picture whose lines follow each other, at any window width: a 640-pixel-wide 4bpp chunky picture has 320-byte rows, so BPLSTRIDE = 320 whether the window shows all of it or 320 pixels of it. BPLSTRIDE = 0 shows the same line on every screen line; −(row bytes) steps back one row, showing the picture upside down.
-- With vertical scaling, on each copy of a source line except the last, the last fetch sets the pointers back to the line's start (no stride added).
+- With vertical scaling, on each copy of a source line except the last, the reset sets the pointers back to the line's start (no stride added).
 
 **Pointer wrap (CTRL.WRAP).** A layer can keep its pointers inside a block of 2^(WRAP + 9) bytes (WRAP 1 = 1 KB, 7 = 64 KB, 13 = 4 MB; 0 = no wrap). Every pointer move, word by word and at the end of each line, changes only the address bits inside the block, so a pointer that runs off the end of the block carries on from its start. The block is the aligned one the pointer is in: a pointer at `0x10000` with a 64 KB wrap stays within `0x10000`–`0x1FFFF`. It applies to every pointer of the layer (each plane can have its own block), and not to the pointer values the CPU or copper write.
 
@@ -162,7 +163,7 @@ CTRL.HSCALE and CTRL.VSCALE each pick 1×, 2×, 4× or 8× (values 0–3). Each 
 
 ### 4.6 Transparency and palette
 
-- **Palettes:** four palettes of 256 entries of 24-bit RGB, memory-mapped (section 6.3): one for each layer (PALETTE0 for L0, PALETTE1 for L1, PALETTE2 for L2) and one for the sprites (SPRPALETTE, spec 9). A layer's pixels take their colours from its own palette only, so three 8-bit layers can show 765 different colours (plus the background). The CPU, copper and DMA engine can write any entry at any time; a write takes effect from the next pixel, so mid-line colour changes work. An entry changes all at once: its high half (red) is held, one for each writer, until that writer's next write to the entry's low half (green, blue), which writes both (spec 3, section 2). A low-half write on its own keeps the entry's red.
+- **Palettes:** four palettes of 256 entries of 24-bit RGB, memory-mapped (section 6.3): one for each layer (PALETTE0 for L0, PALETTE1 for L1, PALETTE2 for L2) and one for the sprites (SPRPALETTE, spec 9). A layer's pixels take their colours from its own palette only, so three 8-bit layers can show 765 different colours (plus the background). The CPU and the copper can write any entry at any time; a write takes effect from the next pixel, so mid-line colour changes work. An entry changes all at once: its high half (red) is held, one for each writer, until that writer's next write to the entry's low half (green, blue), which writes both (spec 3, section 2). A low-half write on its own keeps the entry's red.
 - For layers of up to 4 bits per pixel (chunky 1, 2 or 4bpp, planar 1–4 planes), the colour index in the layer's palette is `PALOFS × 16 + pixel value`: PALOFS picks one of the palette's 16 blocks, so changing it swaps a layer's colours at once. Deeper layers (chunky 8bpp, planar 5–8 planes) use the pixel value directly and ignore PALOFS.
 - **Shared palette:** with VIDCON.SHAREPAL set, every layer and sprite takes its colours from PALETTE0, as on a machine with one palette (layers then share it by PALOFS blocks, as sprites share theirs by PAL). Useful when one palette write should change a colour everywhere, for example copper colour bars across all three layers.
 - The background colour (BGCOLOR) is a register of its own, not a palette entry.
@@ -197,6 +198,7 @@ With VIDCON.DIRECT set, the layers' palettes and the priority are not used (spri
 - Each channel's value is widened to 8 bits by repeating its bits (a 5-bit value `abcde` becomes `abcdeabc`), so full scale stays full scale.
 - One rule covers 24-bit (8/8/8 planes or 8bpp chunky), 16-bit (5/6/5), Amiga 12-bit (4/4/4) and 9-bit (3/3/3) colour. The bandwidth is the total number of planes (section 5.2).
 - Software sets the three layers to the same window, scroll and scale. Where a layer has no pixel (outside its window, not enabled, or out of data), its channel is 0.
+- Each pixel is widened by the depth of the group it came from, so a depth changed part way along a line (section 5.4) changes the values and their widening together, from the next group fetched.
 - CTRL.TRANSP and PALOFS have no effect in direct colour.
 
 ## 5. Fetch
@@ -208,7 +210,7 @@ With VIDCON.DIRECT set, the layers' palettes and the priority are not used (spri
 - **When a group is complete:** the DMA fills a group's data registers from the highest down, and the group is complete when the last of them arrives (BPL0DAT, unless plane 0's DMA is off; section 5.5). For a layer with no DMA, the CPU or copper writes the data registers, and its write of BPL0DAT completes the group.
 - The shifters take all of a layer's data registers at once. They take the line's first group as soon as it is complete, in the horizontal blank, so the second group is already in the data registers when the window starts (as the Amiga fetches ahead of the display window). After that they take the next group each time the current one is used up (every 16 source pixels). Each take empties the data registers, and the DMA fetches the next group.
 - The display owns **memory cycles 1 and 3 of every slot** (40 and 60 ns apart): 4 bytes every 100 ns (spec 5, section 4.3). It may also use any cycle nobody else wants, including cycle 0 when the CPU leaves it, and, as on the Amiga, an **urgent** fetch (one about to be late) takes the CPU's cycle 0 (spec 5, section 6).
-- **Order:** each word goes to the layer whose deadline is nearest (**earliest deadline first**): when a layer's shifters take a group, its countdown loads the time that group lasts (16 source pixels × its scale). Layers with equal deadlines take turns. A request whose deadline is about to pass is **urgent**.
+- **Order:** each word goes to the layer whose deadline is nearest (**earliest deadline first**, chosen in the layer fetch, retro-hw's `layer_fetch.v`): when a layer's shifters take a group, its countdown loads the time that group lasts (16 source pixels × its scale). Layers with equal deadlines take turns. A request whose deadline is about to pass is **urgent**. The layers' requests go ahead of the sprites' in the scheduler, by number; only an urgent sprite fetch goes ahead of a layer's that is not urgent (spec 5, section 6.3).
 - **Start and stop:** at the start of the horizontal blank, each layer whose window covers the next line gets its first group fetched; the number of groups on the line comes from the window width, scale and fine scroll. Nothing is fetched outside the windows.
 - With vertical scaling, each source line is fetched again for every screen line it appears on.
 
@@ -229,7 +231,7 @@ A layer needs `bits per pixel ÷ 8 ÷ HS` bytes per screen pixel (for planar, bi
 | Direct colour 24-bit at 2× across, full width | 1.5 | **No** (just over); 21-bit (7/7/7) at 1.31 fits |
 | Two 8bpp layers at 1× | 2.0 | **No** |
 
-The 1.48 is what the display's own cycles (1 and 3) guarantee. The DMA scheduler (spec 5, section 6) also gives it any cycle nobody else wants, and lets a fetch that is about to be late take the CPU's cycle 0, so a screen a little over the budget still shows correctly: in simulation, 1.5 bytes per pixel (8 + 8 + 8 planes at 2×, or 8 + 4 planes at 1×) fits with the CPU running. The extra comes out of the CPU's, audio's, the copper's and the DMA engine's time, so the table's "No" rows are best avoided, not impossible; how far beyond 1.5 a screen can go is not measured yet.
+The 1.48 is what the display's own cycles (1 and 3) guarantee. The DMA scheduler (spec 5, section 6) also gives it any cycle nobody else wants, and lets a fetch that is about to be late take the CPU's cycle 0, so a screen a little over the budget still shows correctly: in simulation, 1.5 bytes per pixel (8 + 8 + 8 planes at 2×, or 8 + 4 planes at 1×) fits with the CPU running. The extra comes out of the CPU's, audio's, the copper's and the blitter's time, so the table's "No" rows are best avoided, not impossible; how far beyond 1.5 a screen can go is not measured yet.
 
 Windows help: a status bar below a game area, not on top of it, adds nothing on the lines where the game area is shown.
 
@@ -243,12 +245,22 @@ If a layer's next group is not complete when its shifters need it, the layer sho
 
 | Registers | Take effect |
 |-----------|-------------|
-| CTRL, WINX, WINY, SCROLLX | At the start of the horizontal blank before each line. **To change line L, write during the visible part of line L − 1 or earlier** |
-| BPLxPT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the pointer's saved line start; a CPU or copper write wins over the DMA's own change in the same clock. BPLSTRIDE is used with the line's last fetch |
+| CTRL.EN, VSCALE; WINX, WINY, SCROLLX | At the start of the horizontal blank before each line. **To change line L, write during the visible part of line L − 1 or earlier** |
+| CTRL.BPP, PLANAR, PLANES, HSCALE | From the next group the layer fetches (below) |
+| CTRL.TRANSP, PALOFS | From the next pixel (below) |
+| CTRL.WRAP | At the pointers' next move |
+| BPLxPT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the pointer's saved line start; a CPU or copper write wins over the DMA's own change in the same clock. BPLSTRIDE is used when the pointers are reset at the start of the next line's horizontal blank (section 4.4) |
 | BPLxDAT | At once; for a layer with no DMA, a write of BPL0DAT completes the group (write it last). For a plane with DMA off, from the next group |
 | BPLDMA | At once: the next group fetched uses the new enables |
 | PRIO, BGCOLOR | At the start of each line |
 | VIDCON.DIRECT, palette | At once (next pixel) |
+
+**CTRL part way along a line.** A layer's settings are not all taken once a line:
+
+- **Depth, PLANAR and HSCALE** travel with each group: the layer fetch takes them as it starts a group and the shifters use them for that group, so a group is always shown as it was fetched. The fetch works a group ahead, so a write shows from the next or the second group past the one the beam is in: 16–32 source pixels after the beam. A copper placing a change allows for that.
+- **HSCALE part way along a line** changes how long each group lasts, but the line's number of groups was worked out at its start (from the window, the scale and SCROLLX then). A wider scale leaves the line's last groups unshown; a narrower one makes the line run out of groups before the window ends, and the rest of the line is transparent (with an OVERRUN for the layer). The next line starts right either way: the pointers are reset at the line's end (section 4.4).
+- **TRANSP and PALOFS** are read by the pixel side every pixel, straight from the register: a write shows from the next pixel. They cross from the system clock to the pixel clock with no synchroniser, so the one pixel where they change may show a mix of the old and new bits (one bit of PALOFS old, another new).
+- **EN and VSCALE** (and WINX, WINY, SCROLLX) are line settings: from the next line.
 
 ### 5.5 DMA per plane (BPLDMA)
 
@@ -275,7 +287,7 @@ The pixel side (27 MHz) and the memory side (100 MHz) are asynchronous (section 
 
 The next group must be complete before the current one is used up: 16 source pixels, which is 593 ns at 1×, 1185 ns at 2×. Two design choices keep the fixed part short: the "full" synchroniser runs at 135 MHz rather than at the 27 MHz pixel clock (two 27 MHz flip-flops would cost up to 111 ns), and the display's two memory cycles are spread out in the slot (cycles 1 and 3) rather than side by side, so a request never waits more than 60 ns for one.
 
-**Turnaround limit.** Layers whose windows start at the same place, with the same scroll and scale, use up their groups at the same pixel, so all their words are wanted at once. The DMA scheduler (spec 5, section 6) serves the earliest deadline first, uses free cycles 2 and 4 when nobody else wants them, and lets an urgent fetch take the CPU's cycle 0. Measured in simulation at 576p, full width, every layer planar, all in step:
+**Turnaround limit.** Layers whose windows start at the same place, with the same scroll and scale, use up their groups at the same pixel, so all their words are wanted at once. The layer fetch serves the earliest deadline first, the DMA scheduler (spec 5, section 6) gives it free cycles 2 and 4 when nobody else wants them, and lets an urgent fetch take the CPU's cycle 0. Measured in simulation at 576p, full width, every layer planar, all in step:
 
 | Layers | Planes in step | Bytes per pixel | Result |
 |--------|----------------|-----------------|--------|
@@ -285,7 +297,7 @@ The next group must be complete before the current one is used up: 16 source pix
 | 6 at 1× + 8 at 2× + 8 at 4× | – | 1.5 | Fits |
 | 8 + 8 + 7, 8 + 8 + 8 at 2× | 23–24 | 1.44–1.5 | Fits |
 
-Before the scheduler (display cycles 1 and 3 only, layers taking turns), the limits were 10 planes in step at 1× and 22 at 2×, and a deep 1× layer next to a deep 2× layer ran short. With the scheduler every tested case fits, up to 1.5 bytes per pixel. Beyond that the limit is bandwidth (section 5.2), shared with the CPU, audio, the copper and the DMA engine: an urgent display fetch always wins, so a screen near the limit slows the CPU and the other channels rather than the picture. Planes with their DMA off (section 5.5) don't count. Layers whose groups start on different pixels (different fine scroll, or windows starting at different x) share the time better still.
+Before the scheduler (display cycles 1 and 3 only, layers taking turns), the limits were 10 planes in step at 1× and 22 at 2×, and a deep 1× layer next to a deep 2× layer ran short. With the scheduler every tested case fits, up to 1.5 bytes per pixel. Beyond that the limit is bandwidth (section 5.2), shared with the CPU, audio, the copper and the blitter: an urgent display fetch always wins, so a screen near the limit slows the CPU and the other channels rather than the picture. Planes with their DMA off (section 5.5) don't count. Layers whose groups start on different pixels (different fine scroll, or windows starting at different x) share the time better still.
 
 ## 6. Registers
 
@@ -320,7 +332,7 @@ Layer n (0–2) is at `0x100 + n × 0x80`.
 | `+0x10` | BPLSTRIDE | 15–0, signed, even | Bytes from one line's start to the next (section 4.4) |
 | `+0x14` | BPLDMA | SETCLR (15), PLANES (7–0) | DMA enable per plane (chunky: bit 0 for the layer). Set/clear. All on after reset |
 | `+0x20`–`+0x3C` | BPL0PT–BPL7PT | 22–0, even | Plane pointers (chunky: BPL0PT only) |
-| `+0x40`–`+0x5C` | BPL0DAT–BPL7DAT | 15–0 | Data registers: the next group (chunky with b bits per pixel: BPL0DAT–BPL(b−1)DAT) |
+| `+0x40`–`+0x5C` | BPL0DAT–BPL7DAT | 15–0 | Data registers: the next group (chunky with b bits per pixel: BPL0DAT–BPL(b−1)DAT). Write-only: they read as 0 |
 
 ### 6.3 Memory-mapped area
 
@@ -347,16 +359,16 @@ Entry i of palette p is at `0xE04000 + p × 0x400 + i × 4`. Bits 31–24 read a
 | # | Item |
 |---|------|
 | V1 | Check in Vivado that the clock-domain crossings are all covered (asynchronous clock groups) and the pixel pipeline meets timing |
-| V3 | Done: the DMA scheduler orders the layers' fetches by deadline (section 5.6) |
+| V3 | Done: the layer fetch orders the layers' words by deadline (section 5.6). Since the generic scheduler, the layers go ahead of the sprites by number (spec 5, section 6.3) |
 | V2 | Plain DVI has no info packets. Add the HDMI AVI InfoFrame (576p, 4:3, "underscanned", IT content) so TVs neither crop the picture nor treat it as video; needs the HDMI data-island encoder (with HDMI audio, later) |
 
 ## 9. Tests
 
 - **Timing:** sync positions, totals and frame rate for both modes in simulation; real monitors lock on to both, on HDMI and VGA.
-- **Golden images** (`make vtest` in `sim/`): random pictures in every layer format (chunky and planar, scaling, fine scroll, stride, a flipped layer, transparency, priority, and direct colour), compared pixel by pixel with a Python model of this spec (`sim/vtest/vmodel.py`). No OVERRUN.
+- **Golden images** (`make vtest` in `sim/`): random pictures in every layer format (chunky and planar, scaling, fine scroll, stride, a flipped layer, transparency, priority, and direct colour), compared pixel by pixel with a Python model of this spec (`sim/vtest/vmodel.py`). No OVERRUN. The `ctl` screen has a copper change CTRL part way along lines (the depth, and PALOFS), write a split screen's pointers after a layer's last fetch on a line, and write half of a pointer while the layer is fetching. Where section 5.4 gives a range (the next group or the one after it; the next pixel, give or take the beam sample's lag, with one mixed pixel), the model tries each placement it allows and the line must match one exactly.
 - **Boot ROM:** the console and a 4-plane interleaved picture, checked pixel by pixel.
 - **Fetch budget:** for every example in 5.2 that fits, no OVERRUN. For one that does not fit, OVERRUN is set on the right layer only.
-- **Register timing:** a CTRL write during line L − 1's visible part changes line L.
+- **Register timing:** a CTRL write during line L − 1's visible part changes line L; a depth or PALOFS write part way along a line changes it from the group or pixel section 5.4 says (the `ctl` screen).
 - **CPU:** on screens within the 1.48 budget the CPU almost never waits; count the stolen cycle 0s on heavy screens.
 
 ## 10. Later versions

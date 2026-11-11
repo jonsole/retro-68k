@@ -3,9 +3,8 @@
 ; +iotest (the keyboard then sends 1C F0 1C and a frame with bad parity).
 ;
 ;   SD card    start-up at 400 kHz: 80 clocks, CMD0, CMD8, ACMD41 until
-;              ready, CMD58; then 25 MHz. Block 1 read by DMA (SDCOUNT and
-;              port 0) and checked; written to block 2 by DMA (port 0 as a
-;              destination); block 2 read back by the CPU and compared.
+;              ready, CMD58; then 25 MHz. Block 1 read and checked; written
+;              to block 2; block 2 read back and compared.
 ;   keyboard   the three bytes in order; the bad frame dropped with PARITY
 ;              set; ED sent to the keyboard, its FA received.
 ;
@@ -15,8 +14,6 @@
             include "hw.inc"
 
 BUF         equ     $090000             ; a block
-COPY8       equ     ($CC<<DMX_CTRL_MINTERM_B)|(3<<DMX_CTRL_BPP_B)
-CHGO        equ     DMX_CHCTRL_RUN_M|(1<<DMX_CHCTRL_CPUSHARE_B)
 SLOW        equ     SDCON_EN_M|(125<<SDCON_CLKDIV_B)        ; 400 kHz
 FAST        equ     SDCON_EN_M|(2<<SDCON_CLKDIV_B)          ; 25 MHz
 
@@ -30,7 +27,6 @@ start:      move.w  #$2700,sr
             lea     CUSTOM,a4
             move.l  #SERCON_EN_M|SERCON_TXDROP_M,SERCON(a5)
             move.l  #KBCON_EN_M,KBCON(a5)               ; the keyboard on first: its bytes come early
-            move.w  #DMACON_SETCLR_M|DMACON_DMAEN_M|DMACON_BLTEN_M,DMACON+2(a4)
 
 ; ---------------------------------------------------------------- SD card
             move.l  #SLOW,SDCON(a5)
@@ -87,7 +83,7 @@ start:      move.w  #$2700,sr
             beq     failed
             move.l  #FAST|SDCON_CS0_M,SDCON(a5)
 
-            ; block 1 into BUF, by DMA
+            ; block 1 into BUF
             lea     s_rd(pc),a0
             moveq   #17,d1
             moveq   #1,d2
@@ -96,12 +92,13 @@ start:      move.w  #$2700,sr
             tst.b   d0
             bne     failed
             bsr     token
-            move.l  #512,SDCOUNT(a5)
-            lea     j_in(pc),a1
-            bsr     runjob
-            btst    #DMX_CHSTAT_ERR_B,d0
-            bne     failed
-            moveq   #-1,d0                              ; the CRC bytes, by the CPU
+            lea     BUF,a1
+            move.w  #512-1,d2
+.rd:        moveq   #-1,d0
+            bsr     spi
+            move.b  d0,(a1)+
+            dbra    d2,.rd
+            moveq   #-1,d0                              ; the CRC bytes
             bsr     spi
             moveq   #-1,d0
             bsr     spi
@@ -113,7 +110,7 @@ start:      move.w  #$2700,sr
             addq.b  #3,d1
             dbra    d2,.chk
 
-            ; BUF to block 2, by DMA
+            ; BUF to block 2
             lea     s_wr(pc),a0
             moveq   #24,d1
             moveq   #2,d2
@@ -123,10 +120,11 @@ start:      move.w  #$2700,sr
             bne     failed
             move.l  #$FE,d0                             ; the start token
             bsr     spi
-            lea     j_out(pc),a1
-            bsr     runjob
-            btst    #DMX_CHSTAT_ERR_B,d0
-            bne     failed
+            lea     BUF,a1
+            move.w  #512-1,d2
+.wr:        move.b  (a1)+,d0
+            bsr     spi
+            dbra    d2,.wr
             moveq   #-1,d0                              ; CRC
             bsr     spi
             moveq   #-1,d0
@@ -147,7 +145,7 @@ start:      move.w  #$2700,sr
             tst.b   d0
             beq.s   .busy
 
-            ; block 2 back, by the CPU
+            ; block 2 back
             lea     s_rb(pc),a0
             moveq   #17,d1
             moveq   #2,d2
@@ -276,17 +274,6 @@ token:      moveq   #100,d5
             bra     failed
 .ok:        rts
 
-; run the job at a1 (8 long words) on channel 0; d0 = CHSTAT at the end
-runjob:     lea     DMX0(a4),a2
-            moveq   #8-1,d1
-.l:         move.l  (a1)+,(a2)+
-            dbra    d1,.l
-            move.l  #CHGO,DMX0+DMX_CHCTRL(a4)
-.w:         move.l  DMX0+DMX_CHSTAT(a4),d0
-            btst    #DMX_CHSTAT_BUSY_B,d0
-            bne.s   .w
-            rts
-
 puts:       move.b  (a0)+,d0
             beq.s   .done
 .wait:      move.w  SERSTAT+2(a5),d1
@@ -296,17 +283,13 @@ puts:       move.b  (a0)+,d0
             bra.s   puts
 .done:      rts
 
-;           CTRL                              SRC   DST   WIDTH HEIGHT STRIDE VALUE NEXT
-j_in:       dc.l    COPY8|(1<<DMX_CTRL_BKIND_B), 0,    BUF,  (1<<16)|512, 0, 0, 0, 0     ; port 0 to BUF
-j_out:      dc.l    COPY8|(1<<DMX_CTRL_DKIND_B), BUF,  0,    (1<<16)|512, 0, 0, 0, 0     ; BUF to port 0
-
 s_pass:     dc.b    "PASS",13,10,0
 s_cmd0:     dc.b    "FAIL: CMD0",13,10,0
 s_cmd8:     dc.b    "FAIL: CMD8",13,10,0
 s_acmd41:   dc.b    "FAIL: ACMD41",13,10,0
 s_cmd58:    dc.b    "FAIL: CMD58",13,10,0
-s_rd:       dc.b    "FAIL: reading block 1 by DMA",13,10,0
-s_wr:       dc.b    "FAIL: writing block 2 by DMA",13,10,0
+s_rd:       dc.b    "FAIL: reading block 1",13,10,0
+s_wr:       dc.b    "FAIL: writing block 2",13,10,0
 s_rb:       dc.b    "FAIL: reading block 2 back",13,10,0
 s_kb:       dc.b    "FAIL: keyboard bytes",13,10,0
 s_ks:       dc.b    "FAIL: sending to the keyboard",13,10,0

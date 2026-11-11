@@ -14,7 +14,6 @@ The USB serial link connects the computer to a PC through a small FT232H USB mod
 | Flow control | Automatic in hardware, both ways: no data is ever lost and no XON/XOFF or RTS/CTS is needed |
 | Buffers | 2 KB receive and 2 KB transmit FIFOs in the FPGA, plus the FT232H's own 1 KB each way |
 | CPU access | A data register for bytes, status with counts, interrupts on thresholds and a timeout |
-| DMA | DMA engine port 1 (spec 11): bulk transfers with no CPU work |
 | Low delay | The FPGA tells the FT232H to send at once when the transmit FIFO empties, so console text appears without the usual 16 ms USB delay |
 | Control commands | A 3-byte command from the PC (`C0 c ~c`, with the PC's other bytes SLIP-escaped) triggers NMI (break into the debugger), reset, or reset into the upload loader, even when the 68000 has hung |
 
@@ -80,7 +79,7 @@ The link has no separate "break" signal in FIFO mode, so the PC sends commands i
 | `0x03` | `0xFC` | UPLOAD | Reset the computer with RESETWHY.UPLOAD set, so the boot ROM's loader waits for a program over the link (the shared spec "Monitor and upload protocol", [`monitor.md`](monitor.md), section 6). This is the only way into UPLOAD: a long press of the reset button is a plain reset |
 
 - The commands and escapes are handled in hardware, so commands work even when the 68000 has crashed or runs with interrupts off.
-- The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine (port 1) see only the data, in order.
+- The command's 3 bytes and the escape bytes are removed from the stream; software sees only the data, in order.
 - **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once: a `C0` with nothing after it would wait, but the PC tools never send one. (An earlier 16-byte sequence, `00 FF "R68K-CTL" FF 00 A5 5A c ~c`, held back any bytes that might start it, so a message ending in `0x00`, such as a frame whose CRC ends in `0x00`, was seen only when the next byte came. The retro-z80 session found it on its board; this design is shared with it.)
 - The decoder's state (in an escape, in a command) is cleared at power-on only, like the FT232H interface, so the link survives other resets. A reset cannot come in the middle of a command: the command itself causes it.
 - **Terminals:** a plain terminal program sends its bytes unescaped. That is fine for ASCII. In UTF-8, `C0` never appears, but `DB` is a lead byte (U+06C0–U+06FF), so such a character would be decoded wrongly. For binary or non-ASCII text use `rlink.py term`, which escapes.
@@ -116,9 +115,9 @@ A typical console driver sets RXLEVEL = 1 (interrupt on every key) or a larger l
 
 If no program on the PC has the port open, sent data piles up: first in the FT232H, then in the transmit FIFO. Software can treat a full FIFO as "nobody listening". With **SERCON.TXDROP** set, the oldest bytes are dropped to make room instead, so debug output never holds a program up. Dropped bytes are counted in SERDROP.
 
-### 4.4 Bulk transfers with the DMA engine
+### 4.4 Bulk transfers
 
-The DMA engine's **port 1** is this link (spec 11, section 4). A channel can copy a whole file to or from Chip RAM at full speed, paced automatically by the FIFOs, while the CPU does other work. Control-command recognition still works during DMA.
+The CPU moves every byte through SERDATA. (Version 1's DMA engine could copy between this link and Chip RAM, as its port 1; that went with the engine's port jobs, spec 11. A FIFO mover may come back: spec 11, open point D4.)
 
 ## 5. Registers
 
@@ -164,6 +163,5 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 - **No listener:** with the PC port closed, sends fill up; with TXDROP, old bytes drop and are counted.
 - **Control commands and escapes** (`make serial`, and the `+serial` boot test): a frame ending in `0x00` reaches the FIFO at once; `DB DC` and `DB DD` give `C0` and `DB`; BREAK gives one NMI; RESET and UPLOAD reset with the right RESETWHY; none of a command's bytes reach the FIFO; broken commands are dropped; CTLLOCK alone keeps RESET and UPLOAD; with CTLEN and CTLLOCK clear every byte goes on raw.
 - **Interrupts:** RXREADY, RXTIMEOUT, TXREADY and TXOVF at their thresholds.
-- **DMA:** port 1 transfers in both directions at full speed.
 - **Latency:** a single byte sent by the computer reaches the PC in well under 16 ms.
 - **Pi link:** in simulation, a UART model at the chosen rate: loopback, escapes and commands, and CTS holding the sender when the receive FIFO is nearly full. On the board, a loopback through the Pi relay.

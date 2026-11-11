@@ -591,6 +591,13 @@ WIN_Y       equ     VID_Y0+(VID_H-WIN_H)/2  ; 81
 
 The hardware reads CTRL, WINX, WINY and SCROLLX for each line at the start of its horizontal blank (beam pixel 0), before its picture. **To change line L, write during the visible part of line L − 1 or earlier.** This lets you move a window or change a layer's format partway down the screen.
 
+Some of CTRL is read more often, so that a copper can change it partway **along** a line:
+
+- **TRANSP and PALOFS** are read for every pixel: a write shows from the next pixel. Where they change, one pixel may show a mix of the old and new values.
+- **BPP, PLANAR, PLANES and HSCALE** go with each 16-pixel group: the hardware takes them as it starts fetching a group, and shows the group with them. The fetch works a group ahead, so a write shows from the next or the second group past the beam (16–32 source pixels on), never partway into a group.
+- A scale changed partway along a line upsets the line, though: the number of groups fetched for the line was worked out at its start. A wider scale leaves the last groups unshown; a narrower one runs out of groups before the window ends, and the rest of the line is transparent (OVERRUN is set). Either way the next line starts where it should.
+- Put a setting back in the right border, after the layer's window, if the next line should start as before.
+
 ### How much is fetched
 
 The window also decides how much the hardware fetches for each line. For one line of one plane it fetches:
@@ -700,7 +707,7 @@ Other strides show the picture differently:
 - BPLSTRIDE = 0 shows the same source line on every screen line, since each line starts where the last one did.
 - BPLSTRIDE = −(row stride) steps **back** one row each line, so the picture is shown upside down. Point the pointers at the picture's last line and the picture appears flipped top to bottom. For a 320-byte-wide 8 bpp picture, that is BPLSTRIDE = −320.
 
-The stride is live. The hardware reads it when it fetches the line's last word, which is a little before the layer's window ends: about two groups (32 source pixels) before its right edge. So a value written at the start of a line, or in the horizontal blank before it, applies at the end of that line. Changing it partway down the screen is a simple way to make effects, as Example 3-6 below shows.
+The stride is live. The hardware reads it at the end of the line, as the next line's horizontal blank starts, when it moves the pointers on to the next line. So a value written at any time during a line, or in the horizontal blank before it, applies at the end of that line. Changing it partway down the screen is a simple way to make effects, as Example 3-6 below shows.
 
 ### Summary: the stride
 
@@ -931,7 +938,7 @@ The simplest way is to use one layer for each band. Give each layer a window cov
 
 ### Changing the stride partway down
 
-Because the stride is used at the end of each line, changing it during a line changes where the **next** line starts. Change BPLSTRIDE during line L and line L + 1 starts at (line L's start + new BPLSTRIDE). This is a clean way to make a one-layer split: the write can land anywhere in line L before its last fetch, which is easy to hit from an interrupt.
+Because the stride is used at the end of each line, changing it during a line changes where the **next** line starts. Change BPLSTRIDE during line L and line L + 1 starts at (line L's start + new BPLSTRIDE). This is a clean way to make a one-layer split: the write can land anywhere in line L, up to the start of line L + 1's horizontal blank, which is easy to hit from an interrupt.
 
 - To jump to another part of memory at line L + 1, set BPLSTRIDE during line L to (address wanted − line L's start), then put the row stride back during line L + 1. The jump applies to all of the layer's planes, so the new picture must have the same plane layout.
 - To repeat a line, set BPLSTRIDE to 0 for as many lines as you want it repeated.
@@ -985,10 +992,12 @@ mirror:     move.l  a0,-(sp)
 
 On the Amiga, the copper makes splits by writing new plane pointers in the horizontal blank. You can write the pointers at any time here too, since they are live, but you need to know exactly what the hardware does with them:
 
-- A line's fetch begins at the **start of its horizontal blank** (beam pixel 0). During the line, the hardware keeps fetching until about 32 source pixels before the window's right edge. When it fetches the line's last word, it sets each pointer to the line's start plus BPLSTRIDE.
+- A line's fetch begins at the **start of its horizontal blank** (beam pixel 0). During the line, the hardware keeps fetching until about 32 source pixels before the window's right edge, each word moving its pointer on. At the start of the next line's horizontal blank it sets each pointer it fetched from to the line's start plus BPLSTRIDE.
 - A write to a pointer wins over the hardware's own change in the same clock, and it also sets that pointer's saved line start.
 
-So a pointer written during the short gap between the layer's last fetch on line L and the start of line L + 1 (its horizontal blank) is used **as written** as the start of line L + 1: nothing is added and nothing taken off. A pointer written earlier in line L is used for the rest of line L, which disturbs it; one written after line L + 1's horizontal blank has started is too late for its start. With a full-width window the gap is under a microsecond, too short for the CPU to hit reliably; it is meant for the copper. With the CPU, use separate layers or the stride method above.
+So a pointer written during the gap between the layer's last fetch on line L and the start of line L + 1 (its horizontal blank) is used **as written** as the start of line L + 1: nothing is added and nothing taken off. A pointer written earlier in line L is used for the rest of line L, from the next word fetched (one or two groups past the beam), and line L + 1 then starts at the value written plus BPLSTRIDE; one written after line L + 1's horizontal blank has started is too late for its start. With a full-width window the gap is under a microsecond, too short for the CPU to hit reliably; it is meant for the copper. With the CPU, use separate layers or the stride method above.
+
+In the gap a pointer reads back as the end of line L's words, not as line L + 1's start, and a write of one half of it (a MOVE, or a word write) merges with that value. So write each pointer whole: a long-word write, or `CMOVEL`, which writes the high half first.
 
 ---
 
@@ -1550,7 +1559,7 @@ If a layer's next group is not complete when its shifters need it, the layer sho
 
 ## Feeding the Data Registers from the CPU
 
-The data registers BPL0DAT–BPL7DAT can be written by the CPU (and later the copper), just as the DMA writes them. You can feed a whole layer this way, or just some of its planes.
+The data registers BPL0DAT–BPL7DAT can be written by the CPU (and later the copper), just as the DMA writes them. They are write-only: a read gives 0. You can feed a whole layer this way, or just some of its planes.
 
 ### A whole layer
 
@@ -1750,8 +1759,10 @@ You can also poll the flags with interrupts off, as the boot ROM's video test do
 
 | Registers | Take effect |
 |-----------|-------------|
-| CTRL, WINX, WINY, SCROLLX | At the start of each line's horizontal blank (beam pixel 0), before its picture. To change line L, write during the visible part of line L − 1 or earlier |
-| BPLxPT, BPLSTRIDE | At once: they are live. The next word fetched uses the new pointer; BPLSTRIDE is used when the line's last word is fetched. A CPU write to a pointer wins over the DMA's own change in the same clock, and also sets the pointer's saved line start |
+| CTRL.EN, VSCALE, WINX, WINY, SCROLLX | At the start of each line's horizontal blank (beam pixel 0), before its picture. To change line L, write during the visible part of line L − 1 or earlier |
+| CTRL.BPP, PLANAR, PLANES, HSCALE | From the layer's next group fetched (16–32 source pixels after the beam) |
+| CTRL.TRANSP, PALOFS | At once (the next pixel) |
+| BPLxPT, BPLSTRIDE | At once: they are live. The next word fetched uses the new pointer; BPLSTRIDE is used at the end of the line, when the pointers move on to the next line. A CPU write to a pointer wins over the DMA's own change in the same clock, and also sets the pointer's saved line start |
 | BPLxDAT | At once; a write of BPL0DAT completes the group |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes it |
 | VIDCON.DIRECT, VIDCON.BLANKALL, palette | At once (the next pixel) |

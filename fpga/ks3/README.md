@@ -20,7 +20,7 @@ A build takes about 10–20 minutes. The script stops with an error if timing is
 - HDMI and VGA at 576p (720×576, 50 Hz): the boot ROM's checks on a blue 640×480 console, drawn into a 1-plane bitmap layer and centred in the screen with the dark grey background colour as a border, with a small 4-plane test picture at the bottom right. On real hardware the RAM test covers all 4 MB, which takes a few seconds.
 - The reset button restarts it; the Multiface button is the NMI (the boot ROM prints "NMI").
 - With an FT232H module on the accelerator port, the same text appears on a PC terminal, and the PC can send BREAK, RESET and UPLOAD (spec 14). Without one, nothing waits for it.
-- In the build: fx68k, bus interface, SRAM controller, boot ROM, system registers, USB serial, interrupts, timers, video (three bitmap layers, a palette each, direct colour, 8 sprites with fractional scaling), the copper, 4-channel audio, the DMA engine and blitter, the SD card (SPI) and the PS/2 keyboard.
+- In the build: fx68k, bus interface, SRAM controller, boot ROM, system registers, USB serial, interrupts, timers, video (three bitmap layers, a palette each, direct colour, 8 sprites with fractional scaling), the copper, 4-channel audio, the blitter, the SD card (SPI) and the PS/2 keyboard.
 - The boot ROM does not use the SD card or the keyboard yet.
 
 ## Files

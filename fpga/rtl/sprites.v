@@ -27,7 +27,6 @@ module sprites (
     // Scheduler: the sprite channel
     output wire        mem_req,
     output wire [21:1] mem_addr,
-    output wire [9:0]  mem_deadline,
     output wire        mem_urgent,
     input  wire        mem_ack,
     input  wire        mem_rvalid,
@@ -47,7 +46,7 @@ module sprites (
     input  wire [39:0] fifo_ra,        // 8 x 5: read addresses (pixel side)
     output wire [127:0] fifo_rd,       // 8 x 16: the words there
     output wire [47:0] wp_g,           // 8 x 6: write pointers, Gray-coded
-    input  wire [47:0] rp_g,           // 8 x 6: read pointers, Gray-coded (pixel side)
+    input  wire [47:0] rp,             // 8 x 6: read pointers, as the pixel units register them (pixel clock)
     output wire [7:0]  flush_t,
     input  wire [7:0]  flush_ack_t,
 
@@ -90,7 +89,7 @@ module sprites (
     wire [31:0] lst_v = merge({9'd0, lst_cur}, rb_wdata, rb_be);
     wire [31:0] coll_clr = (rb_wr && sel_g && off == `RM_SPRCOLL) ? merge(32'd0, rb_wdata, rb_be) : 32'd0;
 
-    sprite_fetch #(.NS(8), .PW(23), .SWAP_BYTES(0), .URGENT(5), .MANUAL(1)) core (
+    sprite_fetch #(.NS(8), .PW(23), .AW(21), .LITTLE(0), .URGENT(5), .MANUAL(1)) core (
         .clk(clk), .rst(rst),
         .set_sel(cs),
         .set_hstart(m_h[cs][10:0]), .set_hstop(m_h[cs][21:11]),
@@ -103,11 +102,11 @@ module sprites (
         .fifo_count(fifo_count),
         .dat_wr(rb_wr && sel_s && sr == 3'd4 && rb_be[1:0] == 2'b11), .dat(rb_wdata[15:0]),
         .vblank(vblank), .beam_v(beam_v), .beam_h(beam_h),
-        .mem_req(mem_req), .mem_addr(mem_addr), .mem_deadline(mem_deadline), .mem_urgent(mem_urgent),
+        .mem_req(mem_req), .mem_addr(mem_addr), .mem_urgent(mem_urgent),
         .mem_ack(mem_ack), .mem_rvalid(mem_rvalid), .mem_rdata(mem_rdata),
         .p_hs(p_hs), .p_xe(p_xe), .p_act(p_act), .p_lb(p_lb), .p_xstep(p_xstep),
         .p_depth(p_depth), .p_pal(p_pal), .p_dma(p_dma),
-        .fifo_ra(fifo_ra), .fifo_rd(fifo_rd), .wp_g(wp_g), .rp_g(rp_g),
+        .fifo_ra(fifo_ra), .fifo_rd(fifo_rd), .wp_g(wp_g), .rp(rp),
         .flush_t(flush_t), .flush_ack_t(flush_ack_t),
         .coll_line(coll_line), .coll_t(coll_t), .coll_clr(coll_clr), .coll(coll)
     );

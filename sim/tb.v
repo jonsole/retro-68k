@@ -355,11 +355,23 @@ module tb;
         end
         de_d = de;
     end
-    // Video state for the reference model (vmodel.py)
+    // Video state for the reference model (vmodel.py): the plane pointers
+    // and the layers' CTRL as taken for line 0
     reg [22:0] frame_bpt [0:23];
+    reg [23:0] frame_ctrl [0:2];
     integer bi;
-    always @(posedge clk100) if (dut.vid.line_go && dut.vid.vc == dut.vid.VTOT - 1)
-        for (bi = 0; bi < 24; bi = bi + 1) frame_bpt[bi] = dut.vid.dma.pt[bi];
+    always @(posedge clk100) if (dut.vid.line_go && dut.vid.vc == dut.vid.VTOT - 1) begin
+        for (bi = 0; bi < 24; bi = bi + 1) frame_bpt[bi] = dut.vid.lf.pt[bi];
+        for (bi = 0; bi < 3; bi = bi + 1) frame_ctrl[bi] = dut.vid.l_ctrl[bi];
+    end
+    // Every write to a layer's registers (CTRL to BPLxDAT), with the frame
+    // and the beam, so the model can replay changes made while the layers
+    // are drawn
+    integer llog = 0;
+    initial if ($test$plusargs("frame")) llog = $fopen("vstate_lay.txt", "w");
+    always @(posedge clk100) if (llog != 0 && dut.vid.rb_wr && (dut.vid.sel_lay || dut.vid.sel_pt || dut.vid.sel_dat))
+        $fwrite(llog, "%0d %0d %0d %0d %0d %0d %0d\n", dut.vid.s_frames, dut.vid.s_vc, dut.vid.s_hc,
+                dut.vid.ln, dut.vid.off[6:0], dut.vid.rb_wdata, dut.vid.rb_be);
     // Sprite pointers as the CPU or copper last wrote them (they move as fetched)
     reg [22:0] frame_spt [0:7];
     integer si;
@@ -385,6 +397,7 @@ module tb;
         integer f, i, n;
         begin
             if (slog != 0) $fflush(slog);
+            if (llog != 0) $fflush(llog);
             f = $fopen("vstate_regs.txt", "w");
             $fwrite(f, "frame %0d\n", dut.vid.s_frames - 1'b1);   // the frame grabbed (the next has just started)
             $fwrite(f, "hvis %0d\nvvis %0d\nprio %0d\nbg %0d\nvidcon %0d\nvidstat %0d\n",
@@ -393,10 +406,11 @@ module tb;
             for (n = 0; n < 3; n = n + 1)
                 $fwrite(f, "layer %0d ctrl %0d xs %0d xe %0d ys %0d ye %0d sx %0d mod %0d\n", n,
                         dut.vid.l_ctrl[n], dut.vid.l_xs[n], dut.vid.l_xe[n], dut.vid.l_ys[n], dut.vid.l_ye[n],
-                        dut.vid.l_sx[n], dut.vid.dma.mod[n]);
+                        dut.vid.l_sx[n], dut.vid.l_mod[n]);
             for (n = 0; n < 24; n = n + 1) $fwrite(f, "bpt %0d %0d\n", n, frame_bpt[n]);
-            for (n = 0; n < 3; n = n + 1)  $fwrite(f, "bpldma %0d %0d\n", n, dut.vid.dma.pm[n]);
-            for (n = 0; n < 24; n = n + 1) $fwrite(f, "dat %0d %0d\n", n, dut.vid.dma.dr[n]);
+            for (n = 0; n < 3; n = n + 1)  $fwrite(f, "lctrl %0d %0d\n", n, frame_ctrl[n]);
+            for (n = 0; n < 3; n = n + 1)  $fwrite(f, "bpldma %0d %0d\n", n, dut.vid.l_pm[n]);
+            for (n = 0; n < 24; n = n + 1) $fwrite(f, "dat %0d %0d\n", n, dut.vid.lf.dr[n]);
             // Sprites (spec 9)
             for (n = 0; n < 8; n = n + 1)
                 $fwrite(f, "sprite %0d hs %0d he %0d vs %0d ve %0d bpp %0d xstep %0d ystep %0d depth %0d pal %0d pt %0d dma %0d\n", n,
@@ -497,7 +511,7 @@ module tb;
                 if (!$test$plusargs("rom=")) check_bitmap;
             end
             report;
-            // +dumpram=FILE: Chip RAM 0x0F0000-0x1FFFFF at the end (the DMA test)
+            // +dumpram=FILE: Chip RAM 0x0F0000-0x1FFFFF at the end (the blitter test)
             if ($value$plusargs("dumpram=%s", dumpfile)) begin
                 df = $fopen(dumpfile, "w");
                 $fwrite(df, "@%h\n", 21'h78000);
@@ -536,7 +550,7 @@ module tb;
 
 
     reg xseen = 0;
-    always @(posedge clk100) if ($test$plusargs("xstop") && !xseen && !dut.vid.spr.rst && (^{dut.spr_req, dut.spr_ack, dut.spr_urgent} === 1'bx || (dut.spr_req && ^dut.spr_deadline === 1'bx))) begin : xdump
+    always @(posedge clk100) if ($test$plusargs("xstop") && !xseen && !dut.vid.spr.rst && (^{dut.spr_req, dut.spr_ack, dut.spr_urgent} === 1'bx)) begin : xdump
         integer q;
         xseen = 1;
         $display("%t X in want %b", $realtime, dut.vid.spr.core.want);
@@ -546,14 +560,13 @@ module tb;
         $display("  q_h %b q_t %b q_s %b %b %b %b rvalid %b ack %b req %b issue %b pk %b",
                  dut.vid.spr.core.q_h, dut.vid.spr.core.q_t, dut.vid.spr.core.q_s[0], dut.vid.spr.core.q_s[1], dut.vid.spr.core.q_s[2], dut.vid.spr.core.q_s[3],
                  dut.vid.spr.mem_rvalid, dut.vid.spr.mem_ack, dut.vid.spr.mem_req, dut.vid.spr.core.issue, dut.vid.spr.core.pk);
-        $display("  req_s %b deadline %b urgent %b d3_dl %b d3_rr %b bt %b btr %b beam_h %b dl %b %b %b %b %b %b %b %b",
-                 dut.vid.spr.core.req_s, dut.spr_deadline, dut.spr_urgent, dut.vid.spr.core.d3_dl, dut.vid.spr.core.d3_rr, dut.vid.spr.core.bt, dut.vid.spr.core.btr,
+        $display("  req_s %b urgent %b d3_dl %b d3_rr %b bt %b btr %b beam_h %b dl %b %b %b %b %b %b %b %b",
+                 dut.vid.spr.core.req_s, dut.spr_urgent, dut.vid.spr.core.d3_dl, dut.vid.spr.core.d3_rr, dut.vid.spr.core.bt, dut.vid.spr.core.btr,
                  dut.vid.spr.beam_h, dut.vid.spr.core.dl[0], dut.vid.spr.core.dl[1], dut.vid.spr.core.dl[2], dut.vid.spr.core.dl[3],
                  dut.vid.spr.core.dl[4], dut.vid.spr.core.dl[5], dut.vid.spr.core.dl[6], dut.vid.spr.core.dl[7]);
-        $display("  sched: win %b next_cycle %b start %b cpu %b bpl %b/%b dl %b spr %b aud %b cop %b pri %b blt %b port %b",
-                 dut.sched.win, dut.sched.next_cycle, dut.sched.start_next, dut.sched.cpu_req, dut.sched.bpl_req, dut.sched.bpl_urgent,
-                 dut.sched.bpl_deadline, dut.sched.spr_req, dut.sched.aud_req, dut.sched.cop_req, dut.sched.cop_pri,
-                 dut.sched.blt_req, dut.sched.port_req);
+        $display("  sched (0 bpl, 1 spr, 2 aud, 3 cop, 4 cpu, 5 blt, 6 ras, 7 port): win %b next_slot %b start %b req %b urgent %b high %b owners %b",
+                 dut.sched.win, dut.sched.next_slot, dut.sched.start_next, dut.sched.req, dut.sched.urgent,
+                 dut.sched.high, dut.sched.owners);
         $finish;
     end
 
@@ -563,12 +576,15 @@ module tb;
         #1 $readmemh(romfile, dut.rom.mem);
         $display("boot ROM: %0s", romfile);
     end
-    // +dmxsend: the PC sends 64 bytes (7i + 3) early on, for the DMA test's
-    // port job to copy into memory
-    initial if ($test$plusargs("dmxsend")) begin : dmxsend
-        integer i;
-        #50000;
-        for (i = 0; i < 64; i = i + 1) ft.send(i * 7 + 3);
+    // +blttime: each blitter run (a job or a chain): its time and its memory cycles
+    integer blt_t0 = 0, blt_n = 0;
+    reg     blt_was = 0;
+    always @(posedge clk100) if ($test$plusargs("blttime")) begin
+        if (dut.blt_ack) blt_n = blt_n + 1;
+        if (dut.dx.core.busy && !blt_was) begin blt_t0 = $time; blt_n = 0; end
+        if (!dut.dx.core.busy && blt_was)
+            $display("%t blitter: %0d ns, %0d memory cycles", $realtime, $time - blt_t0, blt_n);
+        blt_was = dut.dx.core.busy;
     end
 
     // +ram=FILE: Chip RAM contents at the start ($readmemh of 16-bit words, with @addresses)

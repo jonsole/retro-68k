@@ -9,7 +9,8 @@ A homebrew Motorola 68000 computer with Amiga-style shared memory and an FPGA ha
 - **ROM:** boot ROM with a monitor, held in FPGA block RAM
 - **Video:** HDMI and VGA in one mode, 576p (720×576 at 50 Hz, the digital form of PAL; a PAL Amiga screen sits in a centred window); 3 bitmap layers, planar or chunky, with Amiga-style bitplane pointers; scaling 1–8×; a 256-colour palette per layer (or one shared) or direct colour; a copper (MOVE, WAIT, SKIP)
 - **Audio:** 4 Paula-style channels of 8-bit samples, sigma-delta output
-- **DMA engine:** one channel for copies and fills in Chip RAM, in 1D or 2D
+- **Blitter:** copies, fills and cut-outs of rectangles in Chip RAM, with Amiga minterms, at 1 to 8 bits per pixel
+- **Rasteriser:** lines and filled triangles from screen points, with the same minterms and a clip window
 - **I/O:** USB serial (FT232H module), SD card (SPI), PS/2 keyboard, timers, interrupts
 
 ## Block diagram
@@ -22,7 +23,7 @@ A homebrew Motorola 68000 computer with Amiga-style shared memory and an FPGA ha
  |  | fx68k  |<->| bus, glue |<->| SRAM controller (slots)     |<------>| 4 MB SRAM |
  |  | 68000  |   | boot ROM  |   +-----------------------------+ |      +-----------+
  |  +--------+   +-----------+     ^      ^      ^      ^        |
- |                    |           video  audio  copper DMA engine|---> HDMI, VGA
+ |                    |           video  audio  copper blitter   |---> HDMI, VGA
  |                    v                                          |---> audio jack
  |         timers, interrupts, SD, keyboard, serial              |
  +---------------------------------------------------------------+
@@ -68,7 +69,7 @@ Decisions, memory map, phases and open questions are in [`docs/design-plan.md`](
 3. [ ] Computer on the board: "hello" on a monitor, RAM test, boot monitor (build script ready: `fpga/ks3/build.sh`)
 4. [ ] Video: bitmap layers, palettes, scrolling, sprites with fractional scaling, copper (done in simulation)
 5. [ ] Audio: 4 sample channels
-6. [ ] DMA engine: copies and fills
+6. [ ] Blitter: copies, fills and cut-outs; rasteriser: lines and triangles (done in simulation)
 7. [ ] Home computer: SD card, PS/2 keyboard, BASIC
 8. [ ] Installed as a Next core
 

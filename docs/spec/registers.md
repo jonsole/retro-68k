@@ -13,30 +13,30 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x000000`–`0x007FFF` | 32 KB | Boot ROM overlay for CPU reads after reset (writes go to Chip RAM) | 7, section 3.2 |
 | `0x000000`–`0x3FFFFF` | 4 MB | **Chip RAM** (the KS3's SRAM), shared by the CPU and all DMA. On 2 MB boards: `0x000000`–`0x1FFFFF`, and the rest is a bus error | 5 |
 | `0x400000`–`0xDFFFFF` | 10 MB | Reserved (bus error) | |
-| `0xE00000`–`0xE0FFFF` | 64 KB | **Custom block**: video, copper, DMA engine and audio registers; palette | Section 3 |
+| `0xE00000`–`0xE0FFFF` | 64 KB | **Custom block**: video, copper, blitter, rasteriser and audio registers; palettes | Section 3 |
 | `0xF00000`–`0xF0FFFF` | 64 KB | **System block**: interrupts, timers, serial, SD card, keyboard, system control, I2C | Section 4 |
 | `0xF80000`–`0xF87FFF` | 32 KB | **Boot ROM** | 7, section 3 |
 | Everything else | | Unmapped (bus error) | 1, section 6 |
 
 **Who can reach what:**
 
-| Area | CPU (supervisor) | CPU (user mode) | Copper | DMA engine |
-|------|------------------|-----------------|--------|------------|
+| Area | CPU (supervisor) | CPU (user mode) | Copper | Blitter, rasteriser |
+|------|------------------|-----------------|--------|---------------------|
 | Chip RAM | Yes | Yes | Read (its list) | Yes |
-| Custom block | Yes | Yes, or bus error with SYSCON.PROTECT | Write | Read and write |
+| Custom block | Yes | Yes, or bus error with SYSCON.PROTECT | Write | No |
 | System block | Yes | As above | No | No |
-| Boot ROM | Read (write with ROMWE) | As above | No | Read |
+| Boot ROM | Read (write with ROMWE) | As above | No | No |
 
 ## 2. Rules for all registers
 
 1. **Size and order.** Every register is 32 bits wide, at an address that is a multiple of 4, stored big-endian as the 68000 expects. Its **high half** is at the register's address and its **low half** at address + 2.
 2. **Writing in halves.** Each 16-bit half is written on its own, as soon as it arrives, keeping the other half; a byte write keeps the other byte. The 68000's MOVE.L is two 16-bit writes, the high half first (in every addressing mode except −(An)), and the copper writes a half per MOVE, as the Amiga's registers were written. So between the two halves of a 32-bit register's write, the register holds the new high half and the old low half: write registers the hardware is using (plane pointers, sprite pointers, COP2LC) where it is not using them, in the blank or from the copper, as on the Amiga.
 
-   **Palette entries are the exception:** a colour must change all at once, even in the middle of a line. A write to a palette entry's high half is held, one for each writer (the CPU, the copper and the DMA engine), until the same writer's next write to that entry's low half, which writes both halves together. A low-half write on its own keeps the entry's red. A high-half write to another entry replaces the held one (spec 4, section 4.6).
+   **Palette entries are the exception:** a colour must change all at once, even in the middle of a line. A write to a palette entry's high half is held, one for each writer (the CPU and the copper), until the same writer's next write to that entry's low half, which writes both halves together. A low-half write on its own keeps the entry's red. A high-half write to another entry replaces the held one (spec 4, section 4.6).
 
    **Don't use CLR.L on a FIFO data register** (SERDATA, KBDATA): the 68000's CLR.L reads the register first, which takes a byte out. `MOVE.L #0,...` is always safe.
 3. **Reading in halves.** Each half read returns that half as it is at that moment. A MOVE.L of a register that changes (BEAMPOS, a timer's COUNT) can catch the two halves at different moments; read such a register twice, or read its halves on their own. **TIME** is the exception: reading the high half of TIMEHI captures all 64 bits for the reads of the rest (spec 12, section 3).
-4. **Reading has no side effects,** except in the system block: reading the **low half** of a FIFO data register (SERDATA, KBDATA) takes a byte out (a MOVE.L, high half then low, takes one), reading SERDROP's low half clears it, and reading TIMEHI's high half captures TIME. None of these are in the custom block, so DMA and the copper can never disturb anything by reading.
+4. **Reading has no side effects,** except in the system block: reading the **low half** of a FIFO data register (SERDATA, KBDATA) takes a byte out (a MOVE.L, high half then low, takes one), reading SERDROP's low half clears it, and reading TIMEHI's high half captures TIME. None of these are in the custom block, which is all the copper can reach.
 5. **Sticky flags** (marked W1C below) are cleared by writing 1 to them. Writing 0 leaves them alone.
 6. **Set/clear registers** (DMACON, INTENA, BPLDMA): in each 16-bit set/clear half, the top bit = 1 sets the other bits written as 1; = 0 clears them. DMACON is one such half, in the low half. INTENA has two, so a `MOVE.W` to either half, or a `MOVE.L` to both, works. Byte writes are ignored.
 7. **Unused bits** read as 0; write them as 0.
@@ -55,13 +55,12 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x0000`–`0x00FF` | 256 B | Video global registers and DMACON | 4, 5 |
 | `0x0100`–`0x027F` | 384 B | Layers 0–2 | 4 |
 | `0x0280`–`0x02FF` | | Free | |
-| `0x0300`–`0x03FF` | 256 B | DMA engine | 11 |
+| `0x0300`–`0x03FF` | 256 B | Blitter (`0x300`), rasteriser (`0x340`), and the interrupt flags they share (`0x3F0`) | 11, 17 |
 | `0x0400`–`0x06FF` | 768 B | Audio | 6 |
 | `0x0700`–`0x07FF` | 256 B | Copper | 10 |
 | `0x0800`–`0x3FFF` | | Free | |
 | `0x4000`–`0x4FFF` | 4 KB | Palettes: PALETTE0–2 (one per layer) and SPRPALETTE, each 256 × 32-bit `0x00RRGGBB` | 4, section 6.3 |
-| `0x6000`–`0x67FF` | 2 KB | DMA descriptor RAM: 64 × 32 bytes | 11, section 8 |
-| `0x6800`–`0xFFFF` | | Free | |
+| `0x5000`–`0xFFFF` | | Free | |
 
 ### 3.2 Video and DMA control (`0xE00000`)
 
@@ -77,6 +76,11 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x01C` | PRIO | RW | 4, 4.8 |
 | `0x020` | VIDSIZE | R | 4, 6.1 |
 | `0x094` | DMACON | Set/clear | 5, 8. Its 16-bit value is in the low half at `0x096`, the same address as the Amiga's DMACON |
+| `0x098` | MEMSLOT0 | RW | 5, 8.1. The memory slot plan: slot 0's owners (bits 6–0, one per requester 0–6) and lock (bit 7) |
+| `0x09C` | MEMSLOT1 | RW | 5, 8.1. Slot 1, as MEMSLOT0 |
+| `0x0A0` | MEMSLOT2 | RW | 5, 8.1. Slot 2, as MEMSLOT0 |
+| `0x0A4` | MEMSLOT3 | RW | 5, 8.1. Slot 3, as MEMSLOT0 |
+| `0x0A8` | MEMSLOT4 | RW | 5, 8.1. Slot 4, as MEMSLOT0 |
 
 ### 3.3 Layers (`0xE00100`)
 
@@ -98,38 +102,54 @@ Layer n (0–2) at `0x100 + n × 0x80`:
 | `+0x34` | BPL5PT | RW | 4, 4.4 |
 | `+0x38` | BPL6PT | RW | 4, 4.4 |
 | `+0x3C` | BPL7PT | RW | 4, 4.4 |
-| `+0x40` | BPL0DAT | RW | 4, 5.1 |
-| `+0x44` | BPL1DAT | RW | 4, 5.1 |
-| `+0x48` | BPL2DAT | RW | 4, 5.1 |
-| `+0x4C` | BPL3DAT | RW | 4, 5.1 |
-| `+0x50` | BPL4DAT | RW | 4, 5.1 |
-| `+0x54` | BPL5DAT | RW | 4, 5.1 |
-| `+0x58` | BPL6DAT | RW | 4, 5.1 |
-| `+0x5C` | BPL7DAT | RW | 4, 5.1 |
+| `+0x40` | BPL0DAT | W | 4, 5.1 |
+| `+0x44` | BPL1DAT | W | 4, 5.1 |
+| `+0x48` | BPL2DAT | W | 4, 5.1 |
+| `+0x4C` | BPL3DAT | W | 4, 5.1 |
+| `+0x50` | BPL4DAT | W | 4, 5.1 |
+| `+0x54` | BPL5DAT | W | 4, 5.1 |
+| `+0x58` | BPL6DAT | W | 4, 5.1 |
+| `+0x5C` | BPL7DAT | W | 4, 5.1 |
 
-### 3.5 DMA engine (`0xE00300`)
+### 3.5 Blitter (`0xE00300`)
 
-Channel n (0–3) at `0x300 + n × 0x40`; the job registers (`+0x00`–`+0x1C`) are laid out as a descriptor:
-
-| Offset | Name | Access | Spec |
-|--------|------|--------|------|
-| `+0x00` | CTRL | RW | 11, 8 |
-| `+0x04` | BPT | RW | 11, 8 |
-| `+0x08` | DPT | RW | 11, 8 |
-| `+0x0C` | SIZE | RW | 11, 8 |
-| `+0x10` | APT | RW | 11, 8 |
-| `+0x14` | STRIDE | RW | 11, 8 |
-| `+0x18` | VALUE | RW | 11, 8 |
-| `+0x1C` | NEXT | RW | 11, 8 |
-| `+0x20` | CHDESC | RW | 11, 8 |
-| `+0x24` | CHCTRL | RW | 11, 8 |
-| `+0x28` | CHSTAT | R, W1C | 11, 8 |
-| `+0x2C` | CHERR | R | 11, 8 |
+The job registers (`0x300`–`0x31C`) are laid out as a descriptor:
 
 | Offset | Name | Access | Spec |
 |--------|------|--------|------|
-| `0x3F0` | DMXINT | W1C | 11, 8 |
-| `0x3F4` | DMXINTEN | RW | 11, 8 |
+| `0x300` | BLTCTRL | RW | 11, 3 |
+| `0x304` | BLTBPT | RW | 11, 3 |
+| `0x308` | BLTDPT | RW | 11, 3 |
+| `0x30C` | BLTSIZE | RW | 11, 3 |
+| `0x310` | BLTAPT | RW | 11, 3 |
+| `0x314` | BLTSTRIDE | RW | 11, 3 |
+| `0x318` | BLTVALUE | RW | 11, 3 |
+| `0x31C` | BLTNEXT | RW | 11, 3 |
+| `0x320` | BLTDESC | RW | 11, 7 |
+| `0x324` | BLTCMD | W | 11, 7 |
+| `0x328` | BLTSTAT | R | 11, 7 |
+| `0x3F0` | DMXINT | W1C | 11, 7; 17, 7. Shared with the rasteriser |
+| `0x3F4` | DMXINTEN | RW | 11, 7; 17, 7 |
+
+### 3.5a Rasteriser (`0xE00340`)
+
+The job registers (`0x340`–`0x35C`) are laid out as a descriptor:
+
+| Offset | Name | Access | Spec |
+|--------|------|--------|------|
+| `0x340` | RASCTRL | RW | 17, 3 |
+| `0x344` | RASP0 | RW | 17, 3 |
+| `0x348` | RASP1 | RW | 17, 3 |
+| `0x34C` | RASP2 | RW | 17, 3 |
+| `0x350` | RASDPT | RW | 17, 3 |
+| `0x354` | RASSTRIDE | RW | 17, 3 |
+| `0x358` | RASPAT | RW | 17, 3 |
+| `0x35C` | RASNEXT | RW | 17, 3 |
+| `0x360` | RASDESC | RW | 17, 7 |
+| `0x364` | RASCMD | W | 17, 7 |
+| `0x368` | RASSTAT | R | 17, 7 |
+| `0x36C` | RASCLIPMIN | RW | 17, 4 |
+| `0x370` | RASCLIPMAX | RW | 17, 4 |
 
 ### 3.5b Sprites (`0xE00500`)
 
@@ -254,7 +274,7 @@ Timer n (0–3) at `0x140 + n × 0x20`:
 | `0x218` | SERIRQEN | RW | 14, 4.2 |
 | `0x21C` | SERDROP | R (clears on read) | 14, 4.3 |
 
-SERDROP clearing on read is the one other exception to rule 4 (section 2). It is in the system block, out of reach of DMA and the copper.
+SERDROP clearing on read is the one other exception to rule 4 (section 2). It is in the system block, out of reach of the copper.
 
 ### 4.5 SD card (`0xF00300`)
 
@@ -262,7 +282,6 @@ SERDROP clearing on read is the one other exception to rule 4 (section 2). It is
 |--------|------|--------|------|
 | `0x300` | SDCON | RW | 15, 6 |
 | `0x304` | SDDATA | RW (writing sends a byte) | 15, 3.1 |
-| `0x308` | SDCOUNT | RW | 15, 3.5 |
 
 ### 4.6 Keyboard (`0xF00400`)
 
@@ -319,5 +338,5 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if the
 
 - **Decoding:** read every listed register after reset and check its reset value; read every free address and check 0; access every unmapped region and check a bus error.
 - **Halves rules:** for a sample of registers in both blocks, check that each half and each byte is written on its own; palette entries held per writer (the CPU and copper interleaved); FIFO reads taking a byte only from the low half; and captured reads.
-- **Access rights:** the copper can't reach the system block; DMA can't reach the system block; PROTECT blocks user mode.
+- **Access rights:** the copper can't reach the system block; PROTECT blocks user mode.
 - **Generated files:** the assembler, C and Verilog files from the generator agree with this spec.
