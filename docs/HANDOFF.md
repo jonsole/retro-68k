@@ -79,7 +79,7 @@ Done and tested in simulation:
 | Serial, interrupts, timers | `serial.v`, `intc.v`, `timers.v` | boot |
 | The 68000 RESET instruction: resets the devices (not the CPU, overlay, watchdog, time counter or USB link) | `retro68k.v` (`dev_rst`), `timers.v` | rtest |
 
-Size (Vivado, XC7A35T, 11 November, with retro-hw's size batches and its audio_engine): 15,128 LUTs (72.7%), 10,303 flip-flops, 11.5 block RAM tiles, worst setup slack +0.557 ns, hold +0.043 ns. Before those (branch `raster`) it was 16,166 LUTs (77.7%), 10,809 flip-flops, 11.5 block RAM tiles. With the blitter alone it was 14,687 (70.6%); with the 4-channel DMA engine 16,555 (79.6%). Timing met at 100 MHz, worst setup slack +0.392 ns, hold +0.051 ns. **With the rasteriser (10 November, branch `raster`) the Vivado build has not been run yet**: the core is about 1,430 LUTs alone, so expect about 78–80%. Yosys gives 22,360 LUTs by its own count (108%; about 16,690 by Vivado's, 80%) and 11,037 flip-flops. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
+Size (Vivado, XC7A35T, 11 November, with retro-hw's size batches, its audio_engine and layer_fetch revision 5): 14,736 LUTs (70.9%), 10,327 flip-flops, 11.5 block RAM tiles, worst setup slack +0.553 ns, hold +0.048 ns. Before those (branch `raster`) it was 16,166 LUTs (77.7%), 10,809 flip-flops, 11.5 block RAM tiles. With the blitter alone it was 14,687 (70.6%); with the 4-channel DMA engine 16,555 (79.6%). Timing met at 100 MHz, worst setup slack +0.392 ns, hold +0.051 ns. **With the rasteriser (10 November, branch `raster`) the Vivado build has not been run yet**: the core is about 1,430 LUTs alone, so expect about 78–80%. Yosys gives 22,360 LUTs by its own count (108%; about 16,690 by Vivado's, 80%) and 11,037 flip-flops. Per-unit figures from before the sprite rework: video 4,964 (sprites.v 1,809, the 8 sprite pixel units 779, bpldma.v 923), DMA engine 2,327, audio 1,225, copper 665, SD 66, keyboard 87.
 
 ### Recent decisions to know about
 
@@ -97,7 +97,7 @@ In rough order:
 
 1. **Try the bitstream on the board** (early November): HDMI and VGA at 576p, the boot ROM's console, the serial link, then the SD card and keyboard (`fpga/ks3/README.md` says what to expect).
 2. **Boot ROM**: SD card start-up and a small FAT32 reader to load programs (spec 15, section 4); a keyboard decoder and layout table (spec 16); ROMLOCK.
-3. **Timing margin**: +0.56 ns. The closest path is in the sprite fetch (`sprite_fetch.v`, `dl` to `pk_v`); the audio engine's closest is the bus's read strobe through the channel settings' read address, +0.68 ns.
+3. **Timing margin**: +0.55 ns. The closest path is in the layer fetch (`layer_fetch.v`, `want` to the group registers' enables), then the sprite fetch (`sprite_fetch.v`, `dl` to `pk_v`); the audio engine's closest is the bus's read strobe through the channel settings' read address, +0.68 ns.
 4. **Small items**:
    - the serial link surviving a reset (spec);
    - the SD card and keyboard on the board (spec 15, SD1; spec 16, K3).

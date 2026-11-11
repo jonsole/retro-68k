@@ -250,7 +250,7 @@ If a layer's next group is not complete when its shifters need it, the layer sho
 | CTRL.TRANSP, PALOFS | From the next pixel (below) |
 | CTRL.WRAP | At the pointers' next move |
 | BPLxPT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the pointer's saved line start; a CPU or copper write wins over the DMA's own change in the same clock. BPLSTRIDE is used when the pointers are reset at the start of the next line's horizontal blank (section 4.4) |
-| BPLxDAT | At once; for a layer with no DMA, a write of BPL0DAT completes the group (write it last). For a plane with DMA off, from the next group |
+| BPLxDAT | Within a few clocks of 100 MHz (the write waits for a clock in which no fetched word is stored); for a layer with no DMA, a write of BPL0DAT completes the group (write it last). For a plane with DMA off, from the next group |
 | BPLDMA | At once: the next group fetched uses the new enables |
 | PRIO, BGCOLOR | At the start of each line |
 | VIDCON.DIRECT, palette | At once (next pixel) |
@@ -268,7 +268,7 @@ As on the Amiga, any plane can be fed by the CPU or copper instead of by DMA, so
 
 - **A plane with its DMA off** is not fetched, and its pointer stays where it is. Its data register keeps the value the CPU or copper last wrote, and the shifters take that value again with every group (every 16 source pixels). A write takes effect from the next group. So a constant word gives a repeating 16-pixel pattern, and the copper can change it per line, for example to add a colour bar plane or a stripe pattern to a picture without fetching anything.
 - The layer's group is complete when the DMA has fetched its last enabled plane. Writes to the data registers of planes with DMA off never complete a group.
-- **A layer with no planes on** (or with DMACON.BPLEN or DMAEN off) does no DMA. The CPU or copper writes all its data registers, and a write of BPL0DAT completes each group (section 5.1).
+- **A layer with no planes on** (or with DMACON.BPLEN or DMAEN off) does no DMA. The CPU or copper writes all its data registers, and a write of BPL0DAT completes each group (section 5.1). **The CPU and the copper must not both write data registers at the same time:** the hardware holds one write while a fetched word is stored, and a second write within two clocks replaces it.
 - **Chunky layers:** bit 0 turns the whole layer's DMA on or off; the other bits are ignored.
 - With fewer planes fetched, the layer costs less: count only the planes with DMA on in the budget (section 5.2).
 
