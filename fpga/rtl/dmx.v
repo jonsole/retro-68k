@@ -1,5 +1,5 @@
 // DMA engine and blitter (spec 11): retro68k's registers on retro-hw's
-// dmx_core (fpga/retro-hw/docs/spec/dmx_core.md), which runs the four
+// blitter (fpga/retro-hw/docs/spec/blitter.md), which runs the four
 // channels and the blitter datapath.
 //
 // Kept here: each channel's job registers (laid out as a descriptor), the
@@ -290,7 +290,7 @@ module dmx #(
     // ================================================================ the core
     wire        en = dmacon[`RM_DMACON_DMAEN] && dmacon[`RM_DMACON_BLTEN];
 
-    dmx_core #(.CHIP_WORDS({1'b0, CHIP_TOP[23:1]}), .LE(0), .MASKIMG(1), .XPORT(1), .PORTJOB(1),
+    blitter #(.CHIP_WORDS({1'b0, CHIP_TOP[23:1]}), .LE(0), .MASKIMG(1), .XPORT(1), .PORTJOB(1),
                .LINE(0), .EDGES(0)) core (
         .clk(clk), .rst(rst),
         .enable(en), .pause(pause),

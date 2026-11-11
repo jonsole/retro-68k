@@ -160,7 +160,7 @@ Macros `CCALL address`, `CRET`.
   | 3 | As 1 |
 
   An urgent display fetch (spec 4, section 5.6) still comes first at every level, so raising the copper never spoils the picture. PRI matters only while the copper has an instruction to fetch: while it waits, it takes nothing. A nasty copper owns cycle 0 whatever the slot plan (MEMSLOT0) says; the plan can also give the copper other cycles (spec 5, section 8.1).
-- **When writes take effect:** as for the CPU (spec 4, section 5.4): the palette at once (a colour change shows within about 1–2 pixels of the WAIT position), layer settings from the next line, BPLxPT, BPLSTRIDE and BPLxDAT at once.
+- **When writes take effect:** as for the CPU (spec 4, section 5.4): the palette at once (a colour change shows within about 1–2 pixels of the WAIT position), layer settings from the next line (except CTRL's depth, PLANAR and HSCALE, from the layer's next group fetched, and TRANSP and PALOFS, from the next pixel), BPLxPT, BPLSTRIDE and BPLxDAT at once.
 - **Register bus:** the copper and the CPU share the register bus; a CPU access already on the bus goes first, so a copper write may wait one clock (10 ns).
 
 ## 6. Registers
