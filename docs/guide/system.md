@@ -195,7 +195,7 @@ Software can add more: a copper set to "nasty" priority (COPCON.PRI = 2) owns cy
 
 ### The Slot Plan
 
-Who owns each of the 5 cycles is set by five registers, **MEMSLOT0–MEMSLOT4** (`$E00098`–`$E000A8`), one per cycle. Bits 0–6 of each are its owners, one bit per user: BPL (layers), SPR (sprites), AUD, COP, CPU, BLT (the blitter) and PORT. Bit 7, LOCK, stops an urgent display fetch from taking that cycle. After reset they hold the plan above: `$10` (CPU), `$03` (layers and sprites), `$04` (audio), `$03`, `$00`.
+Who owns each of the 5 cycles is set by five registers, **MEMSLOT0–MEMSLOT4** (`$E00098`–`$E000A8`), one per cycle. Bits 0–6 of each are its owners, one bit per user: BPL (layers), SPR (sprites), AUD, COP, CPU, BLT (the blitter) and RAS (the rasteriser). Bit 7, LOCK, stops an urgent display fetch from taking that cycle. After reset they hold the plan above: `$10` (CPU), `$03` (layers and sprites), `$04` (audio), `$03`, `$00`.
 
 A cycle whose owners don't want it goes to whoever does, so owning a cycle costs nobody bandwidth, only their place in the queue. Users without a cycle of their own take turns in a fixed order: high-priority requests first (a copper at PRI 1 or 2), then the layers, sprites, audio, copper, CPU, blitter and port.
 

@@ -13,15 +13,15 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x000000`–`0x007FFF` | 32 KB | Boot ROM overlay for CPU reads after reset (writes go to Chip RAM) | 7, section 3.2 |
 | `0x000000`–`0x3FFFFF` | 4 MB | **Chip RAM** (the KS3's SRAM), shared by the CPU and all DMA. On 2 MB boards: `0x000000`–`0x1FFFFF`, and the rest is a bus error | 5 |
 | `0x400000`–`0xDFFFFF` | 10 MB | Reserved (bus error) | |
-| `0xE00000`–`0xE0FFFF` | 64 KB | **Custom block**: video, copper, blitter and audio registers; palettes | Section 3 |
+| `0xE00000`–`0xE0FFFF` | 64 KB | **Custom block**: video, copper, blitter, rasteriser and audio registers; palettes | Section 3 |
 | `0xF00000`–`0xF0FFFF` | 64 KB | **System block**: interrupts, timers, serial, SD card, keyboard, system control, I2C | Section 4 |
 | `0xF80000`–`0xF87FFF` | 32 KB | **Boot ROM** | 7, section 3 |
 | Everything else | | Unmapped (bus error) | 1, section 6 |
 
 **Who can reach what:**
 
-| Area | CPU (supervisor) | CPU (user mode) | Copper | Blitter |
-|------|------------------|-----------------|--------|---------|
+| Area | CPU (supervisor) | CPU (user mode) | Copper | Blitter, rasteriser |
+|------|------------------|-----------------|--------|---------------------|
 | Chip RAM | Yes | Yes | Read (its list) | Yes |
 | Custom block | Yes | Yes, or bus error with SYSCON.PROTECT | Write | No |
 | System block | Yes | As above | No | No |
@@ -55,7 +55,7 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x0000`–`0x00FF` | 256 B | Video global registers and DMACON | 4, 5 |
 | `0x0100`–`0x027F` | 384 B | Layers 0–2 | 4 |
 | `0x0280`–`0x02FF` | | Free | |
-| `0x0300`–`0x03FF` | 256 B | Blitter | 11 |
+| `0x0300`–`0x03FF` | 256 B | Blitter (`0x300`), rasteriser (`0x340`), and the interrupt flags they share (`0x3F0`) | 11, 17 |
 | `0x0400`–`0x06FF` | 768 B | Audio | 6 |
 | `0x0700`–`0x07FF` | 256 B | Copper | 10 |
 | `0x0800`–`0x3FFF` | | Free | |
@@ -76,7 +76,7 @@ This spec also replaces spec 2 (memory map), which is folded in here.
 | `0x01C` | PRIO | RW | 4, 4.8 |
 | `0x020` | VIDSIZE | R | 4, 6.1 |
 | `0x094` | DMACON | Set/clear | 5, 8. Its 16-bit value is in the low half at `0x096`, the same address as the Amiga's DMACON |
-| `0x098` | MEMSLOT0 | RW | 5, 8.1. The memory slot plan: slot 0's owners (bits 6–0, one per requester) and lock (bit 7) |
+| `0x098` | MEMSLOT0 | RW | 5, 8.1. The memory slot plan: slot 0's owners (bits 6–0, one per requester 0–6) and lock (bit 7) |
 | `0x09C` | MEMSLOT1 | RW | 5, 8.1. Slot 1, as MEMSLOT0 |
 | `0x0A0` | MEMSLOT2 | RW | 5, 8.1. Slot 2, as MEMSLOT0 |
 | `0x0A4` | MEMSLOT3 | RW | 5, 8.1. Slot 3, as MEMSLOT0 |
@@ -128,8 +128,28 @@ The job registers (`0x300`–`0x31C`) are laid out as a descriptor:
 | `0x320` | BLTDESC | RW | 11, 7 |
 | `0x324` | BLTCMD | W | 11, 7 |
 | `0x328` | BLTSTAT | R | 11, 7 |
-| `0x3F0` | DMXINT | W1C | 11, 7 |
-| `0x3F4` | DMXINTEN | RW | 11, 7 |
+| `0x3F0` | DMXINT | W1C | 11, 7; 17, 7. Shared with the rasteriser |
+| `0x3F4` | DMXINTEN | RW | 11, 7; 17, 7 |
+
+### 3.5a Rasteriser (`0xE00340`)
+
+The job registers (`0x340`–`0x35C`) are laid out as a descriptor:
+
+| Offset | Name | Access | Spec |
+|--------|------|--------|------|
+| `0x340` | RASCTRL | RW | 17, 3 |
+| `0x344` | RASP0 | RW | 17, 3 |
+| `0x348` | RASP1 | RW | 17, 3 |
+| `0x34C` | RASP2 | RW | 17, 3 |
+| `0x350` | RASDPT | RW | 17, 3 |
+| `0x354` | RASSTRIDE | RW | 17, 3 |
+| `0x358` | RASPAT | RW | 17, 3 |
+| `0x35C` | RASNEXT | RW | 17, 3 |
+| `0x360` | RASDESC | RW | 17, 7 |
+| `0x364` | RASCMD | W | 17, 7 |
+| `0x368` | RASSTAT | R | 17, 7 |
+| `0x36C` | RASCLIPMIN | RW | 17, 4 |
+| `0x370` | RASCLIPMAX | RW | 17, 4 |
 
 ### 3.5b Sprites (`0xE00500`)
 

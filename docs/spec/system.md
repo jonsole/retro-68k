@@ -45,7 +45,7 @@ RESETWHY shows the cause of the last reset. It is kept in the system control reg
 All the sources above give the same **full reset**:
 
 - The 68000 is reset and starts again from the vectors at address 0 (section 3).
-- Every custom register and system device goes back to its reset value: video off, sprites, copper, blitter and audio stopped, all interrupts off, timers stopped, watchdog off, keyboard settings back to default.
+- Every custom register and system device goes back to its reset value: video off, sprites, copper, blitter, rasteriser and audio stopped, all interrupts off, timers stopped, watchdog off, keyboard settings back to default.
 - The ROM overlay is turned on.
 - **Chip RAM keeps its contents.** Chip RAM is static RAM (SRAM), which holds its data for as long as the board is powered, with no refresh. So after anything except power-on, memory holds what it held before. Debug tools can look at what a crashed program left behind, and software can choose to keep data across resets (as some Amiga programs did).
 - **The boot ROM keeps its contents,** including any changes made while it was writable (section 3.3). Only reloading the FPGA restores the original.

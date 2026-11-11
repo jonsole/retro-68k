@@ -19,7 +19,7 @@
 #define ROM_BASE                           0xF80000u
 #define ROM_SIZE                           0x8000u
 
-/* ---- CUSTOM: Custom registers: video, blitter, audio, copper */
+/* ---- CUSTOM: Custom registers: video, blitter, rasteriser, audio, copper */
 #define CUSTOM_BASE                        0xE00000u
 #define CUSTOM_SIZE                        0x10000u
 /* VIDCON: RW, spec 4/6.1 */
@@ -133,8 +133,8 @@
 #define MEMSLOT0_CPU_MASK                  0x10u
 #define MEMSLOT0_BLT_SHIFT                 5
 #define MEMSLOT0_BLT_MASK                  0x20u
-#define MEMSLOT0_PORT_SHIFT                6
-#define MEMSLOT0_PORT_MASK                 0x40u
+#define MEMSLOT0_RAS_SHIFT                 6
+#define MEMSLOT0_RAS_MASK                  0x40u
 #define MEMSLOT0_LOCK_SHIFT                7
 #define MEMSLOT0_LOCK_MASK                 0x80u
 /* MEMSLOT1: RW, spec 5/8.1 */
@@ -152,8 +152,8 @@
 #define MEMSLOT1_CPU_MASK                  0x10u
 #define MEMSLOT1_BLT_SHIFT                 5
 #define MEMSLOT1_BLT_MASK                  0x20u
-#define MEMSLOT1_PORT_SHIFT                6
-#define MEMSLOT1_PORT_MASK                 0x40u
+#define MEMSLOT1_RAS_SHIFT                 6
+#define MEMSLOT1_RAS_MASK                  0x40u
 #define MEMSLOT1_LOCK_SHIFT                7
 #define MEMSLOT1_LOCK_MASK                 0x80u
 /* MEMSLOT2: RW, spec 5/8.1 */
@@ -171,8 +171,8 @@
 #define MEMSLOT2_CPU_MASK                  0x10u
 #define MEMSLOT2_BLT_SHIFT                 5
 #define MEMSLOT2_BLT_MASK                  0x20u
-#define MEMSLOT2_PORT_SHIFT                6
-#define MEMSLOT2_PORT_MASK                 0x40u
+#define MEMSLOT2_RAS_SHIFT                 6
+#define MEMSLOT2_RAS_MASK                  0x40u
 #define MEMSLOT2_LOCK_SHIFT                7
 #define MEMSLOT2_LOCK_MASK                 0x80u
 /* MEMSLOT3: RW, spec 5/8.1 */
@@ -190,8 +190,8 @@
 #define MEMSLOT3_CPU_MASK                  0x10u
 #define MEMSLOT3_BLT_SHIFT                 5
 #define MEMSLOT3_BLT_MASK                  0x20u
-#define MEMSLOT3_PORT_SHIFT                6
-#define MEMSLOT3_PORT_MASK                 0x40u
+#define MEMSLOT3_RAS_SHIFT                 6
+#define MEMSLOT3_RAS_MASK                  0x40u
 #define MEMSLOT3_LOCK_SHIFT                7
 #define MEMSLOT3_LOCK_MASK                 0x80u
 /* MEMSLOT4: RW, spec 5/8.1 */
@@ -209,8 +209,8 @@
 #define MEMSLOT4_CPU_MASK                  0x10u
 #define MEMSLOT4_BLT_SHIFT                 5
 #define MEMSLOT4_BLT_MASK                  0x20u
-#define MEMSLOT4_PORT_SHIFT                6
-#define MEMSLOT4_PORT_MASK                 0x40u
+#define MEMSLOT4_RAS_SHIFT                 6
+#define MEMSLOT4_RAS_MASK                  0x40u
 #define MEMSLOT4_LOCK_SHIFT                7
 #define MEMSLOT4_LOCK_MASK                 0x80u
 /* BLTCTRL: RW, spec 11/3 */
@@ -298,16 +298,111 @@
 #define BLTSTAT_BUSY_MASK                  0x1u
 #define BLTSTAT_ERR_SHIFT                  2
 #define BLTSTAT_ERR_MASK                   0x4u
+/* RASCTRL: RW, spec 17/3 */
+#define RASCTRL_OFS                        0x340u
+#define RASCTRL                            HW_REG32(CUSTOM_BASE + RASCTRL_OFS)
+#define RASCTRL_VALUE_SHIFT                0
+#define RASCTRL_VALUE_MASK                 0xFFu
+#define RASCTRL_BPP_SHIFT                  8
+#define RASCTRL_BPP_MASK                   0x300u
+#define RASCTRL_IRQ_SHIFT                  12
+#define RASCTRL_IRQ_MASK                   0x1000u
+#define RASCTRL_TRI_SHIFT                  16
+#define RASCTRL_TRI_MASK                   0x10000u
+#define RASCTRL_NOLAST_SHIFT               17
+#define RASCTRL_NOLAST_MASK                0x20000u
+#define RASCTRL_MINTERM_SHIFT              24
+#define RASCTRL_MINTERM_MASK               0xFF000000u
+/* RASP0: RW, spec 17/3 */
+#define RASP0_OFS                          0x344u
+#define RASP0                              HW_REG32(CUSTOM_BASE + RASP0_OFS)
+#define RASP0_X_SHIFT                      16
+#define RASP0_X_MASK                       0xFFFF0000u
+#define RASP0_Y_SHIFT                      0
+#define RASP0_Y_MASK                       0xFFFFu
+/* RASP1: RW, spec 17/3 */
+#define RASP1_OFS                          0x348u
+#define RASP1                              HW_REG32(CUSTOM_BASE + RASP1_OFS)
+#define RASP1_X_SHIFT                      16
+#define RASP1_X_MASK                       0xFFFF0000u
+#define RASP1_Y_SHIFT                      0
+#define RASP1_Y_MASK                       0xFFFFu
+/* RASP2: RW, spec 17/3 */
+#define RASP2_OFS                          0x34Cu
+#define RASP2                              HW_REG32(CUSTOM_BASE + RASP2_OFS)
+#define RASP2_X_SHIFT                      16
+#define RASP2_X_MASK                       0xFFFF0000u
+#define RASP2_Y_SHIFT                      0
+#define RASP2_Y_MASK                       0xFFFFu
+/* RASDPT: RW, spec 17/3 */
+#define RASDPT_OFS                         0x350u
+#define RASDPT                             HW_REG32(CUSTOM_BASE + RASDPT_OFS)
+#define RASDPT_ADDR_SHIFT                  0
+#define RASDPT_ADDR_MASK                   0xFFFFFFu
+/* RASSTRIDE: RW, spec 17/3 */
+#define RASSTRIDE_OFS                      0x354u
+#define RASSTRIDE                          HW_REG32(CUSTOM_BASE + RASSTRIDE_OFS)
+#define RASSTRIDE_DSTRIDE_SHIFT            0
+#define RASSTRIDE_DSTRIDE_MASK             0xFFFFu
+/* RASPAT: RW, spec 17/3 */
+#define RASPAT_OFS                         0x358u
+#define RASPAT                             HW_REG32(CUSTOM_BASE + RASPAT_OFS)
+#define RASPAT_PATTERN_SHIFT               0
+#define RASPAT_PATTERN_MASK                0xFFFFu
+/* RASNEXT: RW, spec 17/3 */
+#define RASNEXT_OFS                        0x35Cu
+#define RASNEXT                            HW_REG32(CUSTOM_BASE + RASNEXT_OFS)
+#define RASNEXT_ADDR_SHIFT                 0
+#define RASNEXT_ADDR_MASK                  0xFFFFFFu
+/* RASDESC: RW, spec 17/7 */
+#define RASDESC_OFS                        0x360u
+#define RASDESC                            HW_REG32(CUSTOM_BASE + RASDESC_OFS)
+#define RASDESC_ADDR_SHIFT                 0
+#define RASDESC_ADDR_MASK                  0xFFFFFFu
+/* RASCMD: W, spec 17/7 */
+#define RASCMD_OFS                         0x364u
+#define RASCMD                             HW_REG32(CUSTOM_BASE + RASCMD_OFS)
+#define RASCMD_START_SHIFT                 0
+#define RASCMD_START_MASK                  0x1u
+#define RASCMD_RUN_SHIFT                   1
+#define RASCMD_RUN_MASK                    0x2u
+#define RASCMD_STOP_SHIFT                  2
+#define RASCMD_STOP_MASK                   0x4u
+/* RASSTAT: R, spec 17/7 */
+#define RASSTAT_OFS                        0x368u
+#define RASSTAT                            HW_REG32(CUSTOM_BASE + RASSTAT_OFS)
+#define RASSTAT_BUSY_SHIFT                 0
+#define RASSTAT_BUSY_MASK                  0x1u
+#define RASSTAT_ERR_SHIFT                  2
+#define RASSTAT_ERR_MASK                   0x4u
+/* RASCLIPMIN: RW, spec 17/4 */
+#define RASCLIPMIN_OFS                     0x36Cu
+#define RASCLIPMIN                         HW_REG32(CUSTOM_BASE + RASCLIPMIN_OFS)
+#define RASCLIPMIN_X_SHIFT                 16
+#define RASCLIPMIN_X_MASK                  0xFFFF0000u
+#define RASCLIPMIN_Y_SHIFT                 0
+#define RASCLIPMIN_Y_MASK                  0xFFFFu
+/* RASCLIPMAX: RW, spec 17/4 */
+#define RASCLIPMAX_OFS                     0x370u
+#define RASCLIPMAX                         HW_REG32(CUSTOM_BASE + RASCLIPMAX_OFS)
+#define RASCLIPMAX_X_SHIFT                 16
+#define RASCLIPMAX_X_MASK                  0xFFFF0000u
+#define RASCLIPMAX_Y_SHIFT                 0
+#define RASCLIPMAX_Y_MASK                  0xFFFFu
 /* DMXINT: W1C, spec 11/7 */
 #define DMXINT_OFS                         0x3F0u
 #define DMXINT                             HW_REG32(CUSTOM_BASE + DMXINT_OFS)
 #define DMXINT_BLT_SHIFT                   0
 #define DMXINT_BLT_MASK                    0x1u
+#define DMXINT_RAS_SHIFT                   1
+#define DMXINT_RAS_MASK                    0x2u
 /* DMXINTEN: RW, spec 11/7 */
 #define DMXINTEN_OFS                       0x3F4u
 #define DMXINTEN                           HW_REG32(CUSTOM_BASE + DMXINTEN_OFS)
 #define DMXINTEN_BLT_SHIFT                 0
 #define DMXINTEN_BLT_MASK                  0x1u
+#define DMXINTEN_RAS_SHIFT                 1
+#define DMXINTEN_RAS_MASK                  0x2u
 /* SPRDMA: SC, spec 9/6 */
 #define SPRDMA_OFS                         0x500u
 #define SPRDMA                             HW_REG32(CUSTOM_BASE + SPRDMA_OFS)
@@ -1063,6 +1158,60 @@ _Static_assert(sizeof(bltjob_t) == 32, "BLTJOB layout");
 #define BLTJOB_NEXT_OFS                    0x1Cu
 #define BLTJOB_NEXT_ADDR_SHIFT             0
 #define BLTJOB_NEXT_ADDR_MASK              0xFFFFFFu
+
+/* ---- RASJOB: 32-byte layout in memory, spec 17/3 */
+typedef struct {
+    uint32_t ctrl;
+    uint32_t p0;
+    uint32_t p1;
+    uint32_t p2;
+    uint32_t dpt;
+    uint32_t stride;
+    uint32_t pat;
+    uint32_t next;
+} rasjob_t;
+_Static_assert(sizeof(rasjob_t) == 32, "RASJOB layout");
+#define RASJOB_SIZEOF                      32
+#define RASJOB_CTRL_OFS                    0x0u
+#define RASJOB_CTRL_VALUE_SHIFT            0
+#define RASJOB_CTRL_VALUE_MASK             0xFFu
+#define RASJOB_CTRL_BPP_SHIFT              8
+#define RASJOB_CTRL_BPP_MASK               0x300u
+#define RASJOB_CTRL_IRQ_SHIFT              12
+#define RASJOB_CTRL_IRQ_MASK               0x1000u
+#define RASJOB_CTRL_TRI_SHIFT              16
+#define RASJOB_CTRL_TRI_MASK               0x10000u
+#define RASJOB_CTRL_NOLAST_SHIFT           17
+#define RASJOB_CTRL_NOLAST_MASK            0x20000u
+#define RASJOB_CTRL_MINTERM_SHIFT          24
+#define RASJOB_CTRL_MINTERM_MASK           0xFF000000u
+#define RASJOB_P0_OFS                      0x4u
+#define RASJOB_P0_X_SHIFT                  16
+#define RASJOB_P0_X_MASK                   0xFFFF0000u
+#define RASJOB_P0_Y_SHIFT                  0
+#define RASJOB_P0_Y_MASK                   0xFFFFu
+#define RASJOB_P1_OFS                      0x8u
+#define RASJOB_P1_X_SHIFT                  16
+#define RASJOB_P1_X_MASK                   0xFFFF0000u
+#define RASJOB_P1_Y_SHIFT                  0
+#define RASJOB_P1_Y_MASK                   0xFFFFu
+#define RASJOB_P2_OFS                      0xCu
+#define RASJOB_P2_X_SHIFT                  16
+#define RASJOB_P2_X_MASK                   0xFFFF0000u
+#define RASJOB_P2_Y_SHIFT                  0
+#define RASJOB_P2_Y_MASK                   0xFFFFu
+#define RASJOB_DPT_OFS                     0x10u
+#define RASJOB_DPT_ADDR_SHIFT              0
+#define RASJOB_DPT_ADDR_MASK               0xFFFFFFu
+#define RASJOB_STRIDE_OFS                  0x14u
+#define RASJOB_STRIDE_DSTRIDE_SHIFT        0
+#define RASJOB_STRIDE_DSTRIDE_MASK         0xFFFFu
+#define RASJOB_PAT_OFS                     0x18u
+#define RASJOB_PAT_PATTERN_SHIFT           0
+#define RASJOB_PAT_PATTERN_MASK            0xFFFFu
+#define RASJOB_NEXT_OFS                    0x1Cu
+#define RASJOB_NEXT_ADDR_SHIFT             0
+#define RASJOB_NEXT_ADDR_MASK              0xFFFFFFu
 
 /* ---- Named numbers */
 #define TEXTCELL_CHAR_SHIFT                0x0u

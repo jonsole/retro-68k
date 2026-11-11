@@ -26,7 +26,7 @@ block CHIPRAM 0x000000 0x400000 "Chip RAM (SRAM, 4 MB; 2 MB boards use the first
 block ROM     0xF80000 0x008000 "Boot ROM"
 
 # ---------------------------------------------------------------- custom block
-block CUSTOM 0xE00000 0x10000 "Custom registers: video, blitter, audio, copper"
+block CUSTOM 0xE00000 0x10000 "Custom registers: video, blitter, rasteriser, audio, copper"
 
 # Video (spec 4)
 reg 0x000 VIDCON     RW   4/6.1  EN=0 BLANKALL=2 DIRECT=4 SHAREPAL=5
@@ -43,7 +43,7 @@ reg 0x020 VIDSIZE    R    4/6.1  VVISIBLE=26:16 HVISIBLE=10:0
 reg 0x094 DMACON     SC   5/8    AUD0EN=0 AUD1EN=1 AUD2EN=2 AUD3EN=3 SPREN=5 BLTEN=6 COPEN=7 BPLEN=8 DMAEN=9 SETCLR=15
 # The memory slot plan (spec 5): one register per slot of the scheduler's plan,
 # an owner bit per requester (by its number) and a lock bit
-reg 0x098 MEMSLOT0   RW   5/8.1  BPL=0 SPR=1 AUD=2 COP=3 CPU=4 BLT=5 PORT=6 LOCK=7
+reg 0x098 MEMSLOT0   RW   5/8.1  BPL=0 SPR=1 AUD=2 COP=3 CPU=4 BLT=5 RAS=6 LOCK=7
 reg 0x09C MEMSLOT1   RW   5/8.1  fields=MEMSLOT0
 reg 0x0A0 MEMSLOT2   RW   5/8.1  fields=MEMSLOT0
 reg 0x0A4 MEMSLOT3   RW   5/8.1  fields=MEMSLOT0
@@ -88,8 +88,25 @@ reg 0x31C BLTNEXT   RW   11/3  ADDR=23:0
 reg 0x320 BLTDESC   RW   11/7  ADDR=23:0
 reg 0x324 BLTCMD    W    11/7  START=0 RUN=1 STOP=2
 reg 0x328 BLTSTAT   R    11/7  BUSY=0 ERR=2
-reg 0x3F0 DMXINT    W1C  11/7  BLT=0
-reg 0x3F4 DMXINTEN  RW   11/7  BLT=0
+
+# Rasteriser (spec 17). The job registers are laid out as a descriptor (RASJOB)
+reg 0x340 RASCTRL   RW   17/3  VALUE=7:0 BPP=9:8 IRQ=12 TRI=16 NOLAST=17 MINTERM=31:24
+reg 0x344 RASP0     RW   17/3  X=31:16 Y=15:0
+reg 0x348 RASP1     RW   17/3  X=31:16 Y=15:0
+reg 0x34C RASP2     RW   17/3  X=31:16 Y=15:0
+reg 0x350 RASDPT    RW   17/3  ADDR=23:0
+reg 0x354 RASSTRIDE RW   17/3  DSTRIDE=15:0
+reg 0x358 RASPAT    RW   17/3  PATTERN=15:0
+reg 0x35C RASNEXT   RW   17/3  ADDR=23:0
+reg 0x360 RASDESC   RW   17/7  ADDR=23:0
+reg 0x364 RASCMD    W    17/7  START=0 RUN=1 STOP=2
+reg 0x368 RASSTAT   R    17/7  BUSY=0 ERR=2
+reg 0x36C RASCLIPMIN RW  17/4  X=31:16 Y=15:0
+reg 0x370 RASCLIPMAX RW  17/4  X=31:16 Y=15:0
+
+# Shared by the blitter and the rasteriser (specs 11 and 17, section 7)
+reg 0x3F0 DMXINT    W1C  11/7  BLT=0 RAS=1
+reg 0x3F4 DMXINTEN  RW   11/7  BLT=0 RAS=1
 
 # Sprites (spec 9)
 reg 0x500 SPRDMA     SC  9/6    SPR=7:0 SETCLR=15
@@ -220,6 +237,18 @@ struct BLTJOB 32 11/3
   reg 0x14 STRIDE RW 11/3  BSTRIDE=31:16 DSTRIDE=15:0
   reg 0x18 VALUE  RW 11/3  ASTRIDE=31:16 VALUE=15:0
   reg 0x1C NEXT   RW 11/3  ADDR=23:0
+end
+
+# Rasteriser job descriptor (spec 17, section 3)
+struct RASJOB 32 17/3
+  reg 0x00 CTRL   RW 17/3  VALUE=7:0 BPP=9:8 IRQ=12 TRI=16 NOLAST=17 MINTERM=31:24
+  reg 0x04 P0     RW 17/3  X=31:16 Y=15:0
+  reg 0x08 P1     RW 17/3  X=31:16 Y=15:0
+  reg 0x0C P2     RW 17/3  X=31:16 Y=15:0
+  reg 0x10 DPT    RW 17/3  ADDR=23:0
+  reg 0x14 STRIDE RW 17/3  DSTRIDE=15:0
+  reg 0x18 PAT    RW 17/3  PATTERN=15:0
+  reg 0x1C NEXT   RW 17/3  ADDR=23:0
 end
 
 # Text screen cell (spec 4, section 4.7): 16 bits: character 7-0, foreground 11-8, background 15-12

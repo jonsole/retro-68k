@@ -274,7 +274,7 @@ A pixel-only WAIT relies on the copper finishing the block before the beam comes
 
 ### Waiting for the blitter
 
-A WAIT with the **B** bit set, written `CWAITB line,pixel`, waits until the beam has reached the position **and** the blitter has nothing left to do. This is the Amiga's "wait for the blitter" (there, the BFD bit clear). It lets a list start a blitter job, wait for it to finish, and start the next. Example 5-12 shows it. The blitter is described in its own chapter (Chapter 6).
+A WAIT with the **B** bit set, written `CWAITB line,pixel`, waits until the beam has reached the position **and** the blitter has nothing left to do, nor the rasteriser (the line and triangle unit, Chapter 6). This is the Amiga's "wait for the blitter" (there, the BFD bit clear). It lets a list start a blitter job, wait for it to finish, and start the next. Example 5-12 shows it. The blitter is described in its own chapter (Chapter 6).
 
 ---
 

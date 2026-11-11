@@ -213,15 +213,21 @@ module retro68k #(
     wire [21:1] blt_addr;
     wire [15:0] blt_wdata;
     wire [1:0]  blt_be;
+    wire        ras_req, ras_we, ras_ack, ras_rvalid;
+    wire [21:1] ras_addr;
+    wire [15:0] ras_wdata;
+    wire [1:0]  ras_be;
     wire [39:0] memplan;                   // MEMSLOT0-4 (in video.v): slot n in bits 8n+7..8n
 
     // The slot plan (spec 5, section 6.2). Requesters by number: 0 layers,
-    // 1 sprites, 2 audio, 3 copper, 4 CPU, 5 blitter, 6 DMA port. While
+    // 1 sprites, 2 audio, 3 copper, 4 CPU, 5 blitter, 6 rasteriser, 7 DMA
+    // port (which has no owner bit: it never owns a slot). While
     // a nasty copper (COPCON.PRI 2) asks, it owns slot 0 in place of the
     // CPU, whatever MEMSLOT0 says.
     wire        nasty  = cop_req && cop_pri == 2'd2;
     wire [6:0]  own0   = nasty ? {memplan[6:5], 2'b01, memplan[2:0]} : memplan[6:0];
-    wire [34:0] slot_owner = {memplan[38:32], memplan[30:24], memplan[22:16], memplan[14:8], own0};
+    wire [39:0] slot_owner = {1'b0, memplan[38:32], 1'b0, memplan[30:24], 1'b0, memplan[22:16],
+                              1'b0, memplan[14:8], 1'b0, own0};
     wire [4:0]  slot_lock  = {memplan[39], memplan[31], memplan[23], memplan[15], memplan[7]};
 
     // The DMA scheduler (spec 5): who gets each memory cycle
@@ -230,18 +236,18 @@ module retro68k #(
     wire [21:1] m_go_addr;
     wire [15:0] m_go_wdata;
     wire [1:0]  m_go_be;
-    dmac #(.N(7), .S(5)) sched (
+    dmac #(.N(8), .S(5)) sched (
         .clk(clk100), .rst(sys_rst), .start_next(m_start), .next_slot(m_cycle),
         .slot_owner(slot_owner), .slot_lock(slot_lock),
-        .req   ({dma_req, blt_req, m_req, cop_req, aud_req, spr_req, disp_req}),
-        .urgent({5'd0, spr_urgent, disp_urgent}),
-        .high  ({3'd0, cop_pri != 2'd0, 3'd0}),
-        .we    ({dma_we, blt_we, m_we, 4'd0}),
-        .addr  ({dma_addr, blt_addr, m_addr, cop_addr, aud_addr, spr_addr, disp_addr}),
-        .wdata ({dma_wdata, blt_wdata, m_wdata, 64'd0}),
-        .be    ({dma_be, blt_be, m_be, 8'd0}),
-        .ack     ({dma_ack, blt_ack, m_ack, cop_ack, aud_ack, spr_ack, disp_ack}),
-        .rvalid_o({dma_rvalid, blt_rvalid, m_rvalid, cop_rvalid, aud_rvalid, spr_rvalid, disp_rvalid}),
+        .req   ({dma_req, ras_req, blt_req, m_req, cop_req, aud_req, spr_req, disp_req}),
+        .urgent({6'd0, spr_urgent, disp_urgent}),
+        .high  ({4'd0, cop_pri != 2'd0, 3'd0}),
+        .we    ({dma_we, ras_we, blt_we, m_we, 4'd0}),
+        .addr  ({dma_addr, ras_addr, blt_addr, m_addr, cop_addr, aud_addr, spr_addr, disp_addr}),
+        .wdata ({dma_wdata, ras_wdata, blt_wdata, m_wdata, 64'd0}),
+        .be    ({dma_be, ras_be, blt_be, m_be, 8'd0}),
+        .ack     ({dma_ack, ras_ack, blt_ack, m_ack, cop_ack, aud_ack, spr_ack, disp_ack}),
+        .rvalid_o({dma_rvalid, ras_rvalid, blt_rvalid, m_rvalid, cop_rvalid, aud_rvalid, spr_rvalid, disp_rvalid}),
         .go(m_go), .go_we(m_go_we), .go_addr(m_go_addr), .go_wdata(m_go_wdata), .go_be(m_go_be),
         .rvalid(m_rvalid_any)
     );
@@ -303,7 +309,7 @@ module retro68k #(
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
 
-    wire       blt_idle, blt_irq;      // the blitter (below)
+    wire       blt_idle, blt_irq;      // the blitter and the rasteriser (below)
 
     // ---------------------------------------------------------------- copper (spec 10)
     wire cop_irq;
@@ -319,13 +325,15 @@ module retro68k #(
         .irq(cop_irq)
     );
 
-    // ---------------------------------------------------------------- blitter (spec 11)
+    // ---------------------------------------------------------------- blitter (spec 11), rasteriser (spec 17)
     dmx dx (
         .clk(clk100), .rst(dev_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_dmx),
         .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
         .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
+        .ras_req(ras_req), .ras_we(ras_we), .ras_addr(ras_addr), .ras_wdata(ras_wdata), .ras_be(ras_be),
+        .ras_ack(ras_ack), .ras_rvalid(ras_rvalid),
         .dmacon(dmacon), .idle(blt_idle), .irq(blt_irq)
     );
 

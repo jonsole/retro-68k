@@ -26,13 +26,14 @@ This chapter covers:
 - chains of jobs;
 - starting jobs from the copper;
 - status, interrupts and errors;
-- priority and speed.
+- priority and speed;
+- lines and triangles: the rasteriser, a second unit beside the blitter.
 
 You should have read "Working with the Hardware Registers" in the Introduction and System Control Hardware chapter, and the Playfield Hardware chapter, since most blits draw into a layer.
 
-**Note:** The blitter is built in the FPGA design (`fpga/rtl/dmx.v`, on retro-hw's `blitter.v`) and tested in simulation (`make -C sim dtest`, which checks random jobs byte for byte against a model), but not yet on the board.
+**Note:** The blitter and the rasteriser are built in the FPGA design (`fpga/rtl/dmx.v`, on retro-hw's `blitter.v` and `raster.v`) and tested in simulation (`make -C sim dtest` and `make -C sim rastest`, which check random jobs byte for byte against models), but not yet on the board.
 
-**If you used the DMA engine** (before November 2026): it had four channels, ADD jobs, port jobs for the serial link and the SD card, jobs that wrote registers and palettes, a descriptor RAM, HIGH jobs and timer starts. All of those are gone, and the registers have new names and some new bits. The blitter is one job at a time, in Chip RAM only. The CPU now moves SD card and serial bytes itself, and the copper or the CPU loads registers and palettes. Lines and triangles are coming as a separate unit.
+**If you used the DMA engine** (before November 2026): it had four channels, ADD jobs, port jobs for the serial link and the SD card, jobs that wrote registers and palettes, a descriptor RAM, HIGH jobs and timer starts. All of those are gone, and the registers have new names and some new bits. The blitter is one job at a time, in Chip RAM only. The CPU now moves SD card and serial bytes itself, and the copper or the CPU loads registers and palettes. Lines and triangles are drawn by a separate unit, the rasteriser ("Lines and Triangles" below).
 
 ### Comparison with the Amiga
 
@@ -45,7 +46,7 @@ You should have read "Working with the Hardware Registers" in the Introduction a
 | Logic | Any function of three sources (minterms) | The same: the minterm, in the Amiga's numbering, of the mask A, the source B and the destination C |
 | Edge masks | BLTAFWM, BLTALWM | Worked out by the hardware |
 | Overlapping copies | Descending mode | RTL (each row right to left), and negative strides (rows bottom-up) |
-| Line drawing, area fill | Yes | Not in the blitter: a separate unit, to come |
+| Line drawing, area fill | Yes | Not in the blitter: the rasteriser draws lines and fills triangles ("Lines and Triangles") |
 | Priority | BLTPRI ("blitter nasty") | The slot plan (MEMSLOT0–4) |
 
 ### Conventions in this chapter
@@ -435,9 +436,10 @@ Never put a start between the two MOVEs of a 32-bit pair in a list that uses RES
 | BLTSTAT | BUSY (0) | A job or a chain is running |
 | | ERR (2) | The last job stopped on an error. Cleared by the next START or RUN |
 | DMXINT | BLT (0) | A job with IRQ ended, or the blitter stopped (the end of a chain, STOP, an error). Write 1 to clear |
-| DMXINTEN | BLT (0) | Let DMXINT.BLT raise the interrupt |
+| | RAS (1) | The same for the rasteriser |
+| DMXINTEN | BLT (0), RAS (1) | Let DMXINT.BLT, DMXINT.RAS raise the interrupt |
 
-The blitter is interrupt source 4 (`INT_BLT`), level 4 unless changed (Interrupts chapter):
+The blitter is interrupt source 4 (`INT_BLT`), level 4 unless changed (Interrupts chapter). The rasteriser shares the source: a handler for both reads DMXINT to see which it was.
 
 ```asm
 ; a handler for the blitter's interrupt
@@ -483,6 +485,134 @@ For the best speed:
 
 ---
 
+## Lines and Triangles
+
+The **rasteriser** is a second unit beside the blitter. It draws lines and flat-filled triangles into a bitmap from screen coordinates: you give it the points, and it works out the pixels. It is programmed just as the blitter is (job registers laid out as a descriptor, RUN, START, chains, BUSY), its pixels go through the same minterms, and it can run while the blitter does.
+
+| | Blitter | Rasteriser |
+|---|---------|------------|
+| Draws | Rectangles | Lines, filled triangles |
+| Job registers | BLTCTRL … BLTNEXT (`$300`) | RASCTRL … RASNEXT (`$340`) |
+| Start, status | BLTDESC, BLTCMD, BLTSTAT | RASDESC, RASCMD, RASSTAT |
+| Minterm inputs | A a mask, B a source or a constant, C the destination | A a line's pattern (1 in a triangle), B a colour, C the destination |
+| Clipping | By software | A clip window in hardware |
+| Finished | DMXINT.BLT | DMXINT.RAS |
+| Enable | DMACON.BLTEN | The same bit |
+
+On the Amiga, lines are a mode of the blitter and the CPU must work out the octant and the error terms for each; filled shapes are outlines drawn one pixel a row, then filled by a second blit. Here two points make a line and three a filled triangle.
+
+### The window first
+
+The rasteriser writes only pixels inside its **clip window**, two registers that every job shares:
+
+| Register | Bits | Meaning |
+|----------|------|---------|
+| RASCLIPMIN | X 31–16, Y 15–0 | The first column and row |
+| RASCLIPMAX | X 31–16, Y 15–0 | The last column and row (included) |
+
+Set them once to the bitmap you draw into: (0, 0) and (width − 1, height − 1). After that points may lie anywhere, on the screen or off it: a shape that hangs over the edge is cut, and one wholly outside draws nothing. **The window is the only thing that keeps a job inside the bitmap**; with a window bigger than the bitmap a job writes over whatever lies beside it. A smaller window clips drawing to a box on the screen.
+
+The window is not part of a descriptor, so a chain runs under one window, and it cannot be changed while the rasteriser is busy.
+
+### The job
+
+| Register | Descriptor | Fields | Meaning |
+|----------|------------|--------|---------|
+| RASCTRL | +`$00` | VALUE 7–0, BPP 9–8, IRQ 12, TRI 16, NOLAST 17, MINTERM 31–24 | VALUE: the colour. BPP: as BLTCTRL's. TRI: 0 a line, 1 a triangle. NOLAST: leave out a line's last pixel |
+| RASP0 | +`$04` | X 31–16, Y 15–0 | Point 0: a line's start |
+| RASP1 | +`$08` | X 31–16, Y 15–0 | Point 1: a line's end |
+| RASP2 | +`$0C` | X 31–16, Y 15–0 | Point 2 of a triangle |
+| RASDPT | +`$10` | ADDR 23–0 | The byte holding pixel (0, 0) of the bitmap |
+| RASSTRIDE | +`$14` | DSTRIDE 15–0 | Bytes from one row to the next |
+| RASPAT | +`$18` | PATTERN 15–0 | A line's pattern: `$FFFF` for a solid line |
+| RASNEXT | +`$1C` | ADDR 23–0 | The next descriptor, or 0 |
+
+Coordinates are signed 16-bit whole pixels, x to the right and y down. For a layer's bitmap, RASDPT is its plane pointer and DSTRIDE its bytes a row. **Write 0 to RASCTRL's unused bits**: a job with one set is refused with ERR (so is a blitter descriptor with RTL, BCONST or a key mask, given to the rasteriser by mistake).
+
+Each pixel is drawn through MINTERM, as in the blitter, with A the pattern's bit for that pixel (1 in a triangle), B the colour and C the pixel already there:
+
+| MINTERM | Draws |
+|---------|-------|
+| `$CC` | The colour |
+| `$CA` | The colour where the pattern is 1; the bitmap stays where it is 0 (a dashed line) |
+| `$66` | The colour XORed in: the same job again takes it out |
+
+### Example 6-4: A box of four lines
+
+A 320 × 200 screen at 8 bits per pixel. The job registers keep their values, so each further line is two points and RUN.
+
+```asm
+; Example 6-4: a dashed box in colour 15. a4 = CUSTOM.
+SCREEN      equ     $40000
+LINE8       equ     ($CA<<RASCTRL_MINTERM_B)|(3<<RASCTRL_BPP_B)     ; through the pattern, 8 bpp
+
+box:        move.l  #0,RASCLIPMIN(a4)                   ; the window: the screen
+            move.l  #(319<<16)|199,RASCLIPMAX(a4)
+            move.l  #LINE8|RASCTRL_NOLAST_M|15,RASCTRL(a4)
+            move.l  #SCREEN,RASDPT(a4)
+            move.l  #320,RASSTRIDE(a4)
+            move.l  #$F0F0,RASPAT(a4)                   ; 4 pixels on, 4 off
+            clr.l   RASNEXT(a4)
+            lea     corners(pc),a0
+            moveq   #4-1,d1
+.side:      move.l  (a0)+,RASP0(a4)
+            move.l  (a0),RASP1(a4)
+            move.l  #RASCMD_RUN_M,RASCMD(a4)
+.wait:      btst    #RASSTAT_BUSY_B,RASSTAT+3(a4)
+            bne.s   .wait
+            dbra    d1,.side
+            rts
+
+corners:    dc.l    (20<<16)|10, (300<<16)|10, (300<<16)|190, (20<<16)|190, (20<<16)|10
+```
+
+NOLAST leaves each side's last pixel to the next side, so no corner is drawn twice. That matters with `$66`, where a corner drawn twice comes out undrawn. Each job starts the pattern again from bit 15.
+
+### Lines
+
+- **Both ends are drawn**, unless NOLAST is set.
+- **The pattern** is used from bit 15 down, a bit a pixel, going round every 16 pixels. It moves on for pixels outside the window too, so a clipped line's dashes are where they would be unclipped.
+- **Clip very long lines roughly yourself.** The rasteriser steps every pixel of a line, inside the window or not, at 20 ns each: a line to x = 30,000 spends 0.6 ms off the screen. (A line with both ends beyond the same edge of the window is skipped at once.)
+- A line's pixels do not depend on the window, so a line drawn in two halves under two windows has no seam.
+
+### Triangles
+
+Set TRI and give three points, in any order. The triangle is filled with the colour through MINTERM's high four bits (A is 1).
+
+- **Triangles that share an edge fit exactly**: every pixel along the edge is drawn by one of them and not the other. So a mesh has no gaps, and with `$66` no doubled pixels. For that, a triangle leaves out its bottom row and the pixels on its right-hand edges: a triangle from (0, 0), (10, 0), (0, 10) covers x from 0 up to, not including, the slanting edge, in rows 0 to 9.
+- **A triangle with no area draws nothing**: three points in a row, or two the same.
+- **Other shapes are chains of triangles.** A convex polygon with n corners is n − 2 triangles from one corner; a rectangle is quicker as a blitter fill.
+- A triangle takes about 1.5 µs before its first pixel (three divisions for the slopes), then fills about as fast as a blitter fill. Thousands of tiny triangles are slow.
+
+### Example 6-5: A filled quadrilateral as a chain
+
+```asm
+; Example 6-5: a four-cornered shape in colour 5 as two triangles from
+; descriptors in Chip RAM. The window is set as in Example 6-4.
+TRI8        equ     ($CC<<RASCTRL_MINTERM_B)|RASCTRL_TRI_M|(3<<RASCTRL_BPP_B)
+
+quad:       move.l  #quadjobs,RASDESC(a4)
+            move.l  #RASCMD_START_M,RASCMD(a4)
+            rts                                         ; DMXINT.RAS is set at the end
+
+; (in Chip RAM)    CTRL       P0            P1             P2             DPT     STRIDE PAT NEXT
+quadjobs:   dc.l    TRI8|5, (60<<16)|20,  (200<<16)|40,  (180<<16)|150, SCREEN, 320,   0,  quad2
+quad2:      dc.l    TRI8|5, (60<<16)|20,  (180<<16)|150, (30<<16)|120,  SCREEN, 320,   0,  0
+```
+
+The two triangles share the edge from (60, 20) to (180, 150); no pixel is drawn twice.
+
+### Starting, stopping and the blitter
+
+RASDESC, RASCMD and RASSTAT work as BLTDESC, BLTCMD and BLTSTAT do: RUN runs the job in the registers, START loads the descriptor at RASDESC first, a job with RASNEXT not 0 goes on to that descriptor, and STOP ends the job and the chain. DMXINT.RAS is set at the end of a chain and after a job with IRQ.
+
+- **The two units are independent.** Start a blitter chain and a rasteriser chain together and both run, each taking the memory cycles the other leaves. Don't let them write the same pixels at once: the order is not defined.
+- **DMACON.BLTEN** turns both on.
+- **The copper's `CWAITB`** waits for both to be idle, and the copper can start rasteriser jobs as it starts blitter jobs.
+- **Planar layers:** draw at BPP = 0, one job for each plane (a chain), with RASDPT at that plane and VALUE that plane's bit of the colour.
+
+---
+
 ## Summary of Blitter Registers
 
 In the custom block (`$E00000`).
@@ -500,8 +630,31 @@ In the custom block (`$E00000`).
 | `$320` | BLTDESC | RW | ADDR 23–0: the descriptor START loads; reads as the one running |
 | `$324` | BLTCMD | W | START 0, RUN 1, STOP 2 |
 | `$328` | BLTSTAT | R | BUSY 0, ERR 2 |
-| `$3F0` | DMXINT | W1C | BLT 0 |
-| `$3F4` | DMXINTEN | RW | BLT 0 |
+| `$3F0` | DMXINT | W1C | BLT 0, RAS 1 |
+| `$3F4` | DMXINTEN | RW | BLT 0, RAS 1 |
 | `$094` | DMACON | Set/clear | BLTEN 6, DMAEN 9 |
 
 The job registers and BLTDESC ignore writes while BUSY. A descriptor in memory is `BLTJOB_CTRL` to `BLTJOB_NEXT` in `hw.inc` (32 bytes, `BLTJOB_SIZEOF`). The full definition is spec 11 (`docs/spec/dma-engine.md`).
+
+## Summary of Rasteriser Registers
+
+| Offset | Name | Access | Fields |
+|--------|------|--------|--------|
+| `$340` | RASCTRL | RW | VALUE 7–0, BPP 9–8, IRQ 12, TRI 16, NOLAST 17, MINTERM 31–24; the other bits must be 0 |
+| `$344` | RASP0 | RW | X 31–16, Y 15–0 |
+| `$348` | RASP1 | RW | X 31–16, Y 15–0 |
+| `$34C` | RASP2 | RW | X 31–16, Y 15–0 |
+| `$350` | RASDPT | RW | ADDR 23–0 |
+| `$354` | RASSTRIDE | RW | DSTRIDE 15–0 |
+| `$358` | RASPAT | RW | PATTERN 15–0 |
+| `$35C` | RASNEXT | RW | ADDR 23–0 |
+| `$360` | RASDESC | RW | ADDR 23–0: the descriptor START loads; reads as the one running |
+| `$364` | RASCMD | W | START 0, RUN 1, STOP 2 |
+| `$368` | RASSTAT | R | BUSY 0, ERR 2 |
+| `$36C` | RASCLIPMIN | RW | X 31–16, Y 15–0 |
+| `$370` | RASCLIPMAX | RW | X 31–16, Y 15–0 |
+| `$3F0` | DMXINT | W1C | BLT 0, RAS 1 |
+| `$3F4` | DMXINTEN | RW | BLT 0, RAS 1 |
+| `$094` | DMACON | Set/clear | BLTEN 6, DMAEN 9 |
+
+The job registers, RASDESC and the window ignore writes while BUSY. A descriptor in memory is `RASJOB_CTRL` to `RASJOB_NEXT` in `hw.inc` (32 bytes, `RASJOB_SIZEOF`). The full definition is spec 17 (`docs/spec/rasteriser.md`).
