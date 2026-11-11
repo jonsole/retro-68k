@@ -201,7 +201,8 @@ Channel n (0–3) at `0x440 + n × 0x20`:
 | `0x400`–`0x4FF` | Keyboard | 16 |
 | `0x500`–`0x7FF` | Free (mouse, joysticks and other inputs later) | |
 | `0x800`–`0x8FF` | System control | 7, 1 |
-| `0x900`–`0xFFFF` | Free | |
+| `0x900`–`0xAFF` | Configuration flash writer (draft, not built) | 7 |
+| `0xB00`–`0xFFFF` | Free | |
 
 ### 4.2 Interrupt controller (`0xF00000`)
 
