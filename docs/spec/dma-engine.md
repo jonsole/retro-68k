@@ -318,7 +318,7 @@ Version 1's engine was about 2,300 LUTs here. The whole design went from 16,555 
 | D5 | Reserved bits of the job registers are ignored, not an error (the core's `job_bad` is tied off). Software written for version 1's CTRL gets a wrong picture, not ERR |
 | D6 | Closed: the mask has its own stride (ASTRIDE) |
 | D7 | Closed: `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs; the rasteriser's wrapper is in it and shares them (bit 1, RAS) |
-| D8 | The core does not reset the register that holds C, so in simulation the first job after power-on writes unknown bits if it never reads C (an aligned fill). In hardware the bits cancel and the result is right. `dgen.py` and `dspeed.s` start with a job that reads C; a reset in retro-hw's `blitter.v` would be the proper cure |
+| D8 | Closed: retro-hw's `blitter.v` resets the registers the write data is built from, so a first job that never reads C is safe in simulation |
 
 ## 11. Tests
 

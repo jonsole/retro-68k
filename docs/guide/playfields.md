@@ -1559,7 +1559,7 @@ If a layer's next group is not complete when its shifters need it, the layer sho
 
 ## Feeding the Data Registers from the CPU
 
-The data registers BPL0DAT–BPL7DAT can be written by the CPU (and later the copper), just as the DMA writes them. You can feed a whole layer this way, or just some of its planes.
+The data registers BPL0DAT–BPL7DAT can be written by the CPU (and later the copper), just as the DMA writes them. They are write-only: a read gives 0. You can feed a whole layer this way, or just some of its planes.
 
 ### A whole layer
 

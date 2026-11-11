@@ -267,7 +267,7 @@ From the core's design (retro-hw's raster spec, section 4.4), in 10 ns clocks; a
 | Descriptor load (START, or a chain) | 16 read cycles: about 1 µs |
 | Set-up and the first row's address | About 25 clocks: 0.25 µs |
 | TRI: the sort and the three slopes | About 110 clocks: 1.1 µs |
-| LINE: each pixel stepped | 2 clocks; if it is written, about 6 more and its memory accesses |
+| LINE: each pixel stepped | Outside the window, 1 clock; one that is written, about 8 clocks and its memory accesses |
 | TRI: each row | 4 clocks, and for each memory word of the span about 4 clocks and its memory accesses |
 
 So a triangle pays about 1.5 µs before its first pixel, and then fills at 8 bpp at up to about 25 MB/s, as a blitter fill does; many tiny triangles are slow, and a few pixels may be quicker as a line or by the CPU. A line pixel takes about 100 ns (150 ns where it reads first), about ten times a 68000's rate. A line's end far outside the window costs 20 ns for each pixel stepped there: up to 1.3 ms for an end at ±32767.
@@ -290,7 +290,7 @@ The whole design went from 14,687 LUTs (70.6%) to 16,166 (77.7%) with the raster
 | Z1 | This machine's own choices, made without review, each simple to change: (a) the wrapper lives in `dmx.v` beside the blitter's, sharing DMXINT and DMXINTEN (spec 11, D7); (b) its own requester, 6, taking the test port's owner bit in MEMSLOTn (the port is now requester 7 and can own no cycle); (c) DMACON.BLTEN enables both units, with no bit of its own (bit 4 is free); (d) one interrupt source with the blitter, not a source of its own (5 is free); (e) the copper's WAIT B waits for both; (f) reserved RASCTRL bits are an error, where the blitter ignores its own (spec 11, D5); (g) the descriptor layout: points together, the pattern a long word of its own, the colour in RASCTRL's low byte; (h) the window as two corner points |
 | Z2 | Measure the times of section 8 in simulation and on the board, alone and with the blitter and a display running |
 | Z3 | Closed: built in Vivado (section 9) |
-| Z4 | The core does not reset the register that holds the old word (as the blitter's, spec 11, D8), so in simulation the first job after power-on writes unknown bits if it never reads memory first (a plain 8 bpp line). In hardware the bits cancel and the result is right. `rgen.py` starts with a job that reads; a reset in retro-hw's `raster.v` would be the proper cure |
+| Z4 | Closed: retro-hw's `raster.v` resets the register that holds the old word, so a first job that never reads memory is safe in simulation |
 | Z5 | A window per descriptor would let one chain draw into several windows. The core's descriptor has no room for it (retro-hw's raster spec, section 2.1) |
 | Z6 | Shading, depth, and filled shapes other than triangles are not in this revision of the core (its R4). `geom`, for 3D points, would be a third unit |
 

@@ -46,7 +46,7 @@ module sprites (
     input  wire [39:0] fifo_ra,        // 8 x 5: read addresses (pixel side)
     output wire [127:0] fifo_rd,       // 8 x 16: the words there
     output wire [47:0] wp_g,           // 8 x 6: write pointers, Gray-coded
-    input  wire [47:0] rp_g,           // 8 x 6: read pointers, Gray-coded (pixel side)
+    input  wire [47:0] rp,             // 8 x 6: read pointers, as the pixel units register them (pixel clock)
     output wire [7:0]  flush_t,
     input  wire [7:0]  flush_ack_t,
 
@@ -106,7 +106,7 @@ module sprites (
         .mem_ack(mem_ack), .mem_rvalid(mem_rvalid), .mem_rdata(mem_rdata),
         .p_hs(p_hs), .p_xe(p_xe), .p_act(p_act), .p_lb(p_lb), .p_xstep(p_xstep),
         .p_depth(p_depth), .p_pal(p_pal), .p_dma(p_dma),
-        .fifo_ra(fifo_ra), .fifo_rd(fifo_rd), .wp_g(wp_g), .rp_g(rp_g),
+        .fifo_ra(fifo_ra), .fifo_rd(fifo_rd), .wp_g(wp_g), .rp(rp),
         .flush_t(flush_t), .flush_ack_t(flush_ack_t),
         .coll_line(coll_line), .coll_t(coll_t), .coll_clr(coll_clr), .coll(coll)
     );

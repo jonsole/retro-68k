@@ -310,16 +310,6 @@ directed:   lea     BM,a1               ; the bitmaps cleared
 
             ; R12: the blitter and the rasteriser run at the same time
             lea     s_r12(pc),a0
-            clr.l   WIDE+$200                   ; the blitter's first job reads C (spec 11, D8)
-            lea     j_warm(pc),a1
-            lea     BLTCTRL(a4),a2
-            moveq   #8-1,d1
-.wj:        move.l  (a1)+,(a2)+
-            dbra    d1,.wj
-            move.l  #BLTCMD_RUN_M,BLTCMD(a4)
-.ww:        btst    #BLTSTAT_BUSY_B,BLTSTAT+3(a4)
-            bne.s   .ww
-            move.l  #DMXINT_BLT_M,DMXINT(a4)
             lea     WIDE,a1
             moveq   #64-1,d1
 .w0:        clr.l   (a1)+
@@ -473,7 +463,6 @@ j_long2:    dc.l   LINE8|$45
             dc.l   0, BM, 16, $FFFF, 0
 ;           the blitter's: CTRL   BPT   DPT   SIZE   APT   STRIDE   VALUE   NEXT
 j_fill:     dc.l   FILL8, 0, BIG, (1<<16)|$4000, 0, 0, $3C3C, 0
-j_warm:     dc.l   FILL8^($AA<<BLTCTRL_MINTERM_B), 0, WIDE+$200, (1<<16)|4, 0, 0, 0, 0     ; D = B xor C
 ; the descriptors, copied to DSC
 descs:      dc.l   TRI8|$33                         ; +$00 R4: the spec's triangle
             PT     10,2

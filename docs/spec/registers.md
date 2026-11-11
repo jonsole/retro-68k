@@ -102,14 +102,14 @@ Layer n (0–2) at `0x100 + n × 0x80`:
 | `+0x34` | BPL5PT | RW | 4, 4.4 |
 | `+0x38` | BPL6PT | RW | 4, 4.4 |
 | `+0x3C` | BPL7PT | RW | 4, 4.4 |
-| `+0x40` | BPL0DAT | RW | 4, 5.1 |
-| `+0x44` | BPL1DAT | RW | 4, 5.1 |
-| `+0x48` | BPL2DAT | RW | 4, 5.1 |
-| `+0x4C` | BPL3DAT | RW | 4, 5.1 |
-| `+0x50` | BPL4DAT | RW | 4, 5.1 |
-| `+0x54` | BPL5DAT | RW | 4, 5.1 |
-| `+0x58` | BPL6DAT | RW | 4, 5.1 |
-| `+0x5C` | BPL7DAT | RW | 4, 5.1 |
+| `+0x40` | BPL0DAT | W | 4, 5.1 |
+| `+0x44` | BPL1DAT | W | 4, 5.1 |
+| `+0x48` | BPL2DAT | W | 4, 5.1 |
+| `+0x4C` | BPL3DAT | W | 4, 5.1 |
+| `+0x50` | BPL4DAT | W | 4, 5.1 |
+| `+0x54` | BPL5DAT | W | 4, 5.1 |
+| `+0x58` | BPL6DAT | W | 4, 5.1 |
+| `+0x5C` | BPL7DAT | W | 4, 5.1 |
 
 ### 3.5 Blitter (`0xE00300`)
 

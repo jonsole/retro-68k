@@ -108,7 +108,6 @@ In rough order:
 ### Known gaps
 
 - The rasteriser's times are worked out, not measured (spec 17, Z2).
-- retro-hw's `raster.v`, like `blitter.v`, does not reset the register that holds the old memory word: the first job in a simulation must read memory (spec 17, Z4; spec 11, D8).
 - Only the `spr` video screen is in CI (its own job, about an hour); `pal`, `direct` and `share` run locally.
 - Sprite open points (spec 9, section 9): S1, measure the memory budget table in simulation; S2, whether sprites' share of free cycles should be capped.
 - The blitter's speed (spec 11, section 8) is measured in simulation with the display off; not with a busy screen, nor on the board (open point D2).

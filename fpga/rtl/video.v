@@ -109,8 +109,8 @@ module video (
     reg  [3:0]  l_sx [0:2];
     reg  [15:0] l_mod [0:2];           // BPLSTRIDE (bit 0 is 0)
     reg  [7:0]  l_pm [0:2];            // BPLDMA: a DMA enable a plane (chunky: bit 0 for the layer)
-    wire [22:0] ptr_rdata;             // the pointer the bus addresses (from the layer fetch)
-    wire [15:0] dat_rdata;             // ... and the data register
+    wire [22:0] ptr_rdata;             // the pointer the bus addresses (from the layer fetch);
+                                       // the data registers are write-only (DATREAD 0)
 
     // From the pixel domain
     reg  [10:0] p_hc, p_vc;            // beam position (pixel domain)
@@ -225,7 +225,6 @@ module video (
             default: ;
         endcase
         if (rb_rd && sel_pt)  reg_q <= {9'd0, ptr_rdata};
-        if (rb_rd && sel_dat) reg_q <= {16'd0, dat_rdata};
         if (rb_rd && sel_glob) case (off)
             `RM_VIDCON:     reg_q <= {26'd0, vidcon};
             `RM_VIDSTAT:    reg_q <= {23'd0, p_invblank, vidstat};
@@ -463,7 +462,7 @@ module video (
     function [2:0] depth_of(input [23:0] c);
         depth_of = c[1] ? c[18:16] : (3'd1 << c[3:2]) - 1'b1;
     endfunction
-    layer_fetch #(.NL(3), .AW(21), .PW(23), .PLANAR(1), .TILES(0), .DATWRITE(1), .LITTLE(0),
+    layer_fetch #(.NL(3), .AW(21), .PW(23), .PLANAR(1), .TILES(0), .DATWRITE(1), .DATREAD(0), .LITTLE(0),
                   .URG_BASE(15), .URG_WORD(5)) lf (
         .clk(clk), .rst(rst), .enable(fetch_en),
         .line_t(line_t), .line_go(line_go), .line_gen(line_gen),
@@ -477,7 +476,7 @@ module video (
         .tile(3'd0), .mapw(6'd0), .ty(30'd0), .tcol(21'd0), .mappt(69'd0), .patpt(69'd0),
         .ptr_sel(pd_sel), .ptr_wr(rb_wr && sel_pt), .ptr_wdata(ptr_wdata), .ptr_rdata(ptr_rdata),
         .dat_wr(rb_wr && sel_dat), .dat_sel(pd_sel), .dat_wdata(rb_wdata[15:0]), .dat_be(rb_be[1:0]),
-        .dma_en({l_pm[2], l_pm[1], l_pm[0]}), .dat_rdata(dat_rdata),
+        .dma_en({l_pm[2], l_pm[1], l_pm[0]}), .dat_rdata(),
         .dat(dat), .attr(), .gset(gset), .fill_t(fill_t), .take_t(take_t),
         .req(disp_req), .urgent(disp_urgent), .addr(disp_addr), .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
@@ -491,7 +490,7 @@ module video (
     wire [31:0] sp_pal;
     wire [39:0] sp_ra;
     wire [127:0] sp_rd;
-    wire [47:0] sp_wpg, sp_rpg;
+    wire [47:0] sp_wpg, sp_rp;
     wire [7:0]  sp_fl, sp_fla;
     reg  [31:0] coll_acc, coll_line;
     reg         coll_t;
@@ -503,7 +502,7 @@ module video (
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
         .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
         .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),
-        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp_g(sp_rpg), .flush_t(sp_fl), .flush_ack_t(sp_fla),
+        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp(sp_rp), .flush_t(sp_fl), .flush_ack_t(sp_fla),
         .coll_line(coll_line), .coll_t(coll_t)
     );
 
@@ -536,11 +535,12 @@ module video (
     generate for (sg = 0; sg < 8; sg = sg + 1) begin : sprs
         wire [5:0] rpb;
         assign sp_ra[5*sg +: 5] = rpb[4:0];
+        assign sp_rp[6*sg +: 6] = rpb;
         sprite_pix u (
             .clk_pix(clk_pix), .en(en_p), .t(st_now),
             .act(c_sact[sg]), .hs(c_shs[sg]), .xe(c_sxe[sg]), .lb(c_slb[sg]),
             .xstep(c_sxs[sg]), .pal(c_spal[sg]), .dma(c_sdma[sg]),
-            .head(sp_rd[16*sg +: 16]), .rp(rpb), .rp_g(sp_rpg[6*sg +: 6]), .wp_g(sp_wpg[6*sg +: 6]),
+            .head(sp_rd[16*sg +: 16]), .rp(rpb), .wp_g(sp_wpg[6*sg +: 6]),
             .flush_t(sp_fl[sg]), .flush_ack_t(sp_fla[sg]),
             .opaque(s_op[sg]), .idx(s_idx[sg]), .underrun_t(p_un[sg])
         );
