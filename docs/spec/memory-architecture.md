@@ -2,9 +2,9 @@
 
 Status: **v1 scope**
 
-This spec describes how the CPU, video, audio, the copper and the DMA engine share the KS3's fast SRAM. It follows the Amiga's model: memory time is cut into fixed **slots**, and each slot's memory cycles have fixed owners, so every user's bandwidth is guaranteed.
+This spec describes how the CPU, video, audio, the copper and the blitter share the KS3's fast SRAM. It follows the Amiga's model: memory time is cut into fixed **slots**, and each slot's memory cycles have fixed owners, so every user's bandwidth is guaranteed.
 
-The SRAM is fast enough to give the CPU its own memory cycle in **every** slot, so the CPU normally never waits for the display, audio, copper or DMA engine, and there is no even/odd alignment to keep. As on the Amiga, the bitplane DMA may take the CPU's cycle when it would otherwise be late (section 6); the CPU then waits one slot. One scheduler, the DMA controller (`dmac.v` in retro-hw, the equivalent of the Amiga's Agnus), gives out every memory cycle, following a slot plan that software can change (section 8.1).
+The SRAM is fast enough to give the CPU its own memory cycle in **every** slot, so the CPU normally never waits for the display, audio, copper or blitter, and there is no even/odd alignment to keep. As on the Amiga, the bitplane DMA may take the CPU's cycle when it would otherwise be late (section 6); the CPU then waits one slot. One scheduler, the DMA controller (`dmac.v` in retro-hw, the equivalent of the Amiga's Agnus), gives out every memory cycle, following a slot plan that software can change (section 8.1).
 
 ## 1. Summary
 
@@ -13,8 +13,8 @@ The SRAM is fast enough to give the CPU its own memory cycle in **every** slot, 
 | Memory | One IS61WV204816BLL-10 SRAM on the KS3: 2M × 16 bit (4 MB), 10 ns. Some boards may have 2 MB; SYSCFG.CHIPMB reports which |
 | Memory cycle | 20 ns = 2 clocks at 100 MHz: one 16-bit read or write at any address (byte writes with /UB and /LB) |
 | Slot | 100 ns = 5 memory cycles (numbered 0–4) = 2 CPU clocks at 20 MHz |
-| CPU | Cycle 0 of every slot, and any spare cycle ahead of the DMA engine. Waits only when an urgent display fetch takes cycle 0 (one slot, 2 CPU clocks), or while a nasty copper or a HIGH DMA engine job owns cycle 0 (section 6.3) |
-| DMA | Cycles 1 and 3: display fetch, layers first, then sprites (spread out, so a waiting fetch never waits long). Cycle 2: audio and peripherals. Cycle 4: the free pool for the copper and the DMA engine. A cycle its owner leaves goes to the next requester that asks, by number |
+| CPU | Cycle 0 of every slot, and any spare cycle ahead of the blitter. Waits only when an urgent display fetch takes cycle 0 (one slot, 2 CPU clocks), or while a nasty copper owns cycle 0 (section 6.3) |
+| DMA | Cycles 1 and 3: display fetch, layers first, then sprites (spread out, so a waiting fetch never waits long). Cycle 2: audio and peripherals. Cycle 4: the free pool for the copper and the blitter. A cycle its owner leaves goes to the next requester that asks, by number |
 | Slot plan | Who owns each cycle: the MEMSLOT0–4 registers, the plan above after reset (section 8.1) |
 | Beam lock | Every scan line is a whole number of slots; the slot counter restarts each line, so DMA happens at the same beam positions on every line |
 | Total bandwidth | 100 MB/s (5 × 2 bytes per 100 ns) |
@@ -24,7 +24,7 @@ The SRAM is fast enough to give the CPU its own memory cycle in **every** slot, 
 
 | Name | Where | Who can access it |
 |------|-------|-------------------|
-| **Chip RAM** | The 4 MB SRAM | CPU and every DMA engine |
+| **Chip RAM** | The 4 MB SRAM | CPU and every DMA user |
 | **Block RAM** | Inside the FPGA: boot ROM, palette, FIFOs | CPU through registers/windows; never uses SRAM cycles |
 
 There is no Fast RAM: all RAM is Chip RAM, and the CPU gets it at full speed anyway. On the Amiga, Chip RAM was slowed by display modes that stole CPU cycles; here the display never takes the CPU's cycle.
@@ -41,7 +41,7 @@ The full map is in spec 3, section 1. Memory in short:
 | `0xF00000`–`0xF0FFFF` | | System registers |
 | `0xF80000`–`0xF87FFF` | 32 KB | Boot ROM |
 
-- **DMA addresses are the same as CPU addresses** (24-bit). Video, audio, the copper and the DMA engine can all use the whole of Chip RAM.
+- **DMA addresses are the same as CPU addresses** (24-bit). Video, audio, the copper and the blitter can all use the whole of Chip RAM.
 - **Reset overlay:** after reset the ROM also appears at `0x000000` for CPU reads (writes go to Chip RAM), so the CPU can fetch its stack pointer and start address. The ROM code runs at its real address at `0xF80000`, builds the vector table in RAM, then turns the overlay off (spec 7, section 3).
 
 ## 4. Memory cycles and slots
@@ -83,7 +83,7 @@ Each 100 ns slot holds 5 memory cycles:
 | 1 | Display fetch | Layers (spec 4, section 5), then sprites (spec 9). If neither needs it, it goes to the free pool |
 | 2 | Audio and peripherals | Audio channels (spec 6). In version 1 nothing else uses it; unused cycles go to the free pool |
 | 3 | Display fetch | Layers and sprites, as cycle 1. The display's two cycles are 40 and 60 ns apart, not side by side, so a fetch that has just missed one waits at most 60 ns for the next (spec 4, section 5.6) |
-| 4 | Free pool | Owned by nobody: the copper, the DMA engine and anyone else, by number (section 6) |
+| 4 | Free pool | Owned by nobody: the copper, the blitter and anyone else, by number (section 6) |
 
 This is the default plan, the one the MEMSLOT registers hold after reset. Software can change it (section 8.1).
 
@@ -93,7 +93,7 @@ This is the default plan, the one the MEMSLOT registers hold after reset. Softwa
 - CPU: a 68000 at 20 MHz makes at most one access per bus cycle (200 ns), so it uses cycle 0 in at most every other slot: up to **10 MB/s**. Its other cycle 0s go to the free pool.
 - Display fetch: **40 MB/s** (cycles 1 and 3). There is no wide fetch in version 1.
 - Audio and peripherals: **20 MB/s** (cycle 2), far more than 4 channels of 8-bit samples need.
-- Free pool (copper, DMA engine): cycle 4 (20 MB/s), plus the cycle 0s the CPU leaves, the cycle 2s audio leaves and the display cycles no layer needs: typically 50–65 MB/s.
+- Free pool (copper, blitter): cycle 4 (20 MB/s), plus the cycle 0s the CPU leaves, the cycle 2s audio leaves and the display cycles no layer needs: typically 50–65 MB/s.
 
 ## 5. CPU access
 
@@ -117,7 +117,7 @@ A 20 MHz 68000 bus cycle takes 4 CPU clocks = 2 slots. For a cycle starting in s
 
 **The CPU waits for Chip RAM only when the display would otherwise be late, or when software asks for it.** With the default plan, only an urgent display fetch (one whose deadline is about to pass, section 6) can take cycle 0 from the CPU; the CPU's access then waits one slot, and usually less, since the CPU also takes any spare cycle. On screens within the budget this is rare; on heavy screens the CPU slows down on those lines, as on the Amiga.
 
-Software asks for it in three ways: a copper at PRI 2 (nasty), a DMA engine job with HIGH set (spec 11, section 5), or a slot plan that takes cycle 0 from the CPU (section 8.1). The first two own cycle 0 while they ask (section 6.3). **A long HIGH job can hold the CPU off for as long as it runs, interrupts included**: the CPU then gets only the cycles the job and the display leave.
+Software asks for it in two ways: a copper at PRI 2 (nasty), which owns cycle 0 while it asks (section 6.3), or a slot plan that takes cycle 0 from the CPU (section 8.1). (The DMA engine's HIGH jobs were a third; they went with the engine, spec 11.)
 
 **Interrupts** stay vectored (design plan D8): the 6800-style /VPA cycle is not used.
 
@@ -136,7 +136,7 @@ A requester's number is its priority: wherever two meet in the same rule, the lo
 | 2 | AUD | Audio (spec 6): has microseconds to spare | – | – |
 | 3 | COP | Copper (spec 10) | – | COPCON.PRI 1 or more |
 | 4 | CPU | The 68000 | – | – |
-| 5 | BLT | DMA engine / blitter (spec 11): its 4 channels take turns inside the engine | – | The running job's HIGH bit |
+| 5 | BLT | The blitter (spec 11) | – | – |
 | 6 | PORT | The DMA port: peripherals later; the tests use it now | – | – |
 
 ### 6.2 The slot plan
@@ -150,13 +150,13 @@ For each cycle, the first rule that finds a request wins, and within a rule the 
 1. **A locked cycle's owner.** In a locked cycle, an owner that asks gets it.
 2. **An urgent request** (the layers before the sprites). It may take any cycle that is not locked, the CPU's cycle 0 included; the CPU's access then waits.
 3. **The cycle's owner.** In cycles 1 and 3 of the default plan the layers go before the sprites.
-4. **The spare cycles:** first a **high** request (a copper at PRI 1 or 2, a HIGH DMA engine job), then **anyone** who asks: layers, sprites, audio, copper, CPU, DMA engine, DMA port.
+4. **The spare cycles:** first a **high** request (a copper at PRI 1 or 2), then **anyone** who asks: layers, sprites, audio, copper, CPU, blitter, DMA port.
 
 So no cycle is wasted: whatever its owners leave goes to the next requester that wants one. The display can use cycle 0 when the CPU is not using it, and cycles 2 and 4 when audio leaves them. The CPU can use any cycle its turn in rule 4 gives it, so a read that misses its cycle 0 often gets a later cycle of the same slot.
 
-**Nasty copper and HIGH jobs.** While a copper at PRI 2 (nasty) asks for a cycle, it owns cycle 0 *in place of the CPU*; so does a DMA engine job with HIGH set, while it asks. The rule is the same whatever the plan: the CPU's owner bit in cycle 0 is cleared, and the copper's or the DMA engine's is set; the rest of MEMSLOT0 (its other owners and its lock) stands. If both ask, the copper goes first (number 3). A plan that already leaves the CPU out of cycle 0 is changed only by the added owner. This is done outside the scheduler, in `retro68k.v`, so MEMSLOT0 reads back as written.
+**Nasty copper.** While a copper at PRI 2 (nasty) asks for a cycle, it owns cycle 0 *in place of the CPU*. The rule is the same whatever the plan: the CPU's owner bit in cycle 0 is cleared, and the copper's is set; the rest of MEMSLOT0 (its other owners and its lock) stands. A plan that already leaves the CPU out of cycle 0 is changed only by the added owner. This is done outside the scheduler, in `retro68k.v`, so MEMSLOT0 reads back as written.
 
-Unlike the first scheduler, the display's requesters are not ordered by deadline: the layers and the sprites meet by number, so the layers go first, and only `urgent` saves a late sprite. Each still uses its own deadline to decide when to raise `urgent`. There is no CPU share: a HIGH job owns cycle 0 for as long as it asks.
+Unlike the first scheduler, the display's requesters are not ordered by deadline: the layers and the sprites meet by number, so the layers go first, and only `urgent` saves a late sprite. Each still uses its own deadline to decide when to raise `urgent`. There is no CPU share: a nasty copper owns cycle 0 for as long as it asks.
 
 ### 6.4 How long an urgent request waits
 
@@ -189,7 +189,7 @@ If an owner doesn't need its cycle (the CPU is between accesses, no layer is fet
 | Display (layers) | Depends on the layers | 1280 bytes per line: 1.48 bytes per pixel (864 pixels per line, spec 4, section 5.2) |
 | Audio, 4 channels of 8-bit samples | One word (2 samples) per channel at a time, as on the Amiga | Cycle 2: 20 MB/s |
 | Copper | 2 cycles per instruction | The free pool, first |
-| DMA engine | – | The rest of the free pool: about 50–65 MB/s of memory cycles, depending on the screen (spec 11) |
+| Blitter | – | The rest of the free pool: about 50–65 MB/s of memory cycles, depending on the screen. It uses a quarter to a third of them (spec 11, section 8) |
 
 During vertical blanking (49 of the 625 lines) there is no display fetch, so cycles 1 and 3 go to the free pool too. In the horizontal blank (144 of the 864 pixels) the display fetches only the first two groups of each layer's next line.
 
@@ -209,7 +209,7 @@ The bits are where the Amiga has them:
 | 9 | DMAEN | Master enable for everything below |
 | 8 | BPLEN | Bitplane DMA for all layers (each plane also has its own enable in its layer's BPLDMA; spec 4, section 5.5) |
 | 7 | COPEN | Copper |
-| 6 | BLTEN | DMA engine / blitter (spec 11) |
+| 6 | BLTEN | The blitter (spec 11) |
 | 5 | SPREN | Sprite DMA (spec 9) |
 | 4 | – | Unused |
 | 3–0 | AUD3EN–AUD0EN | Audio channels 3–0 (spec 6) |
@@ -227,7 +227,7 @@ Five registers, **MEMSLOT0–MEMSLOT4** at `0xE00098`–`0xE000A8`, one per cycl
 | 2 | AUD | Audio owns it |
 | 3 | COP | The copper owns it |
 | 4 | CPU | The CPU owns it |
-| 5 | BLT | The DMA engine owns it |
+| 5 | BLT | The blitter owns it |
 | 6 | PORT | The DMA port owns it |
 | 7 | LOCK | An urgent request may not take this cycle from an owner that asks |
 
@@ -241,11 +241,11 @@ The bits are the requesters' numbers (section 6.1). After a reset (and the 68000
 | MEMSLOT3 | `0x03` | Layers, sprites |
 | MEMSLOT4 | `0x00` | Nobody |
 
-- A write takes effect from the next cycle the scheduler gives out; one in the middle of a slot or a line is safe. The CPU, the copper and the DMA engine can all write them, so a copper list can change the plan at a given line.
-- **Owning a cycle never costs bandwidth, only priority**: an owned cycle its owners don't use goes to the spare-cycle order. So, for example, `0x20` in MEMSLOT0 (the DMA engine instead of the CPU) is a "big blit" plan: the CPU gets spare cycles only.
+- A write takes effect from the next cycle the scheduler gives out; one in the middle of a slot or a line is safe. The CPU and the copper can both write them, so a copper list can change the plan at a given line.
+- **Owning a cycle never costs bandwidth, only priority**: an owned cycle its owners don't use goes to the spare-cycle order. So, for example, `0x20` in MEMSLOT0 (the blitter instead of the CPU) is a "big blit" plan: the CPU gets spare cycles only. (The blitter asks for one cycle in three or four, so in simulation the CPU still never waits under such a plan: `dtest` T19.)
 - **Keep the display's cycles.** The layers and sprites need the bandwidth of two owned cycles for the budgets of spec 4, section 5.2 and spec 9, section 5; with fewer, a heavy screen runs short.
 - **Locks** lengthen the urgent waits (section 6.4). Nothing in this machine needs them: the 68000 waits for its data (spec 1), so it can lose its cycle.
-- A nasty copper or a HIGH job changes the plan seen by the scheduler only in cycle 0, and only while it asks (section 6.3).
+- A nasty copper changes the plan seen by the scheduler only in cycle 0, and only while it asks (section 6.3).
 
 ## 9. Open points
 
@@ -259,8 +259,8 @@ The bits are the requesters' numbers (section 6.1). After a reset (and the 68000
 ## 10. Tests
 
 - **Cycle table:** check each owner gets its cycles at the same `hslot` on every line, and that unused cycles go to the free pool.
-- **CPU waits:** run fx68k from Chip RAM with the display, audio, copper and DMA engine all busy; check that /DTACK is delayed only by stolen cycle 0s (urgent display, nasty copper, HIGH jobs).
+- **CPU waits:** run fx68k from Chip RAM with the display, audio, copper and blitter all busy; check that /DTACK is delayed only by stolen cycle 0s (urgent display, nasty copper).
 - **The rules:** retro-hw's own tests check the scheduler against a model of the rules, with random requests and random plans (`fpga/retro-hw/test/dmac`).
-- **The slot plan and HIGH** (`dtest`, T17–T19): MEMSLOT0–4 read back the default plan; the CPU times 32 Chip RAM reads while an 8 KB FILL runs: with a normal job they take no longer than with no job, with a HIGH job, or with a plan that makes the DMA engine owner of every cycle, they take at least 500 ns longer; the default plan is written back and read back.
+- **The slot plan** (`dtest`, T17–T19): MEMSLOT0–4 read back the default plan; the CPU times 32 Chip RAM reads while an 8 KB fill runs, and they take no longer than with no job; with a plan that makes the blitter owner of every cycle the job and the CPU both still run; the default plan is written back and read back. (With version 1's DMA engine, which asked for nearly every cycle, that plan made the reads at least 500 ns longer. The new blitter asks for too few cycles to show it: the owner rule itself is tested in retro-hw's `test/dmac`.)
 - **SRAM model:** run the controller against an SRAM simulation model with the datasheet timing checks on (setup, hold, pulse widths, bus turnaround). Done in `sim/` for version 1.
-- **Board test:** a full 4 MB pattern test from the CPU and from the DMA engine at once, with the display busy.
+- **Board test:** a full 4 MB pattern test from the CPU and from the blitter at once, with the display busy.

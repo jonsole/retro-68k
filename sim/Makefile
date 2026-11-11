@@ -26,7 +26,7 @@ HW_SRC := $(HW)/rtl/timebase.v $(HW)/rtl/sram_ctl.v $(HW)/rtl/dmac.v $(HW)/rtl/f
 RTL_SRC := $(RTL)/cpu_fx68k.v $(RTL)/bus_if.v $(RTL)/bootrom.v $(RTL)/sysregs.v $(RTL)/serial.v $(RTL)/intc.v $(RTL)/timers.v $(RTL)/sprites.v $(RTL)/video.v $(RTL)/copper.v $(RTL)/audio.v $(RTL)/dmx.v $(RTL)/sdspi.v $(RTL)/ps2kb.v $(RTL)/retro68k.v $(HW_SRC)
 SIM_SRC := $(HW)/platform/sim/oddr.v $(HW)/sim/sram_model.v $(HW)/sim/ft232h_model.v sd_model.v $(HW)/sim/ps2_model.v tb.v
 
-.PHONY: vtest ctest atest dtest iotest rtest serial cresume all run frame clean
+.PHONY: vtest ctest atest dtest dspeed iotest rtest serial cresume all run frame clean
 all: run
 
 $(BUILD):
@@ -94,9 +94,9 @@ ctest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
 	python3 ctest/ccheck.py $$d
 
-# DMA engine test (spec 11): random jobs on the 4 channels (dtest/dgen.py;
-# SEED picks them), then every byte of the test area checked against a
-# Python model (dtest/dmodel.py)
+# Blitter test (spec 11): chains of random jobs (dtest/dgen.py; SEED picks
+# them), then every byte of the test area checked against a Python model
+# (dtest/dmodel.py); and directed tests checked by the test ROM
 SEED = 11
 dtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	@set -e; d=$(BUILD)/dtest; mkdir -p $$d; \
@@ -104,12 +104,18 @@ dtest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
 	python3 $(ROOT)/tools/bin2hex.py $$d/dtest.bin $$d/dtest.hex; \
 	python3 dtest/dgen.py $$d $(SEED); \
 	cp $(BUILD)/microrom.mem $(BUILD)/nanorom.mem $$d/; \
-	(cd $$d && $(VVP) -n ../tb.vvp +rom=dtest.hex +ram=ram.hex +dumpram=after.hex +dmxsend > sim.log); \
+	(cd $$d && $(VVP) -n ../tb.vvp +rom=dtest.hex +ram=ram.hex +dumpram=after.hex > sim.log); \
 	grep -a "^FAIL\|^PASS" $$d/sim.log || true; \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; \
 	python3 dtest/dmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex
 
-# I/O test (specs 15, 16): the SD card (start-up, blocks by DMA and by the CPU)
+# Blitter speed (spec 11, section 8): six 64 KB jobs, each one's time and
+# memory cycles printed by the testbench; first with the CPU in ROM, then
+# with the CPU reading Chip RAM
+dspeed: $(BUILD)/tb.vvp $(BUILD)/microrom.mem
+	@set -e; d=$(BUILD)/dspeed; mkdir -p $$d; 	$(VASM) -quiet -Fbin -I $(ROOT)/firmware/include -o $$d/dspeed.bin dtest/dspeed.s; 	python3 $(ROOT)/tools/bin2hex.py $$d/dspeed.bin $$d/dspeed.hex; 	python3 dtest/dgen.py $$d $(SEED); 	cp $(BUILD)/microrom.mem $(BUILD)/nanorom.mem $$d/; 	(cd $$d && $(VVP) -n ../tb.vvp +rom=dspeed.hex +ram=ram.hex +blttime > sim.log); 	grep -a "blitter:\|^FAIL\|^PASS" $$d/sim.log || true; 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }
+
+# I/O test (specs 15, 16): the SD card (start-up, a block read and written)
 # and the PS/2 keyboard (receiving, a bad frame, sending), against the
 # testbench's models
 iotest: $(BUILD)/tb.vvp $(BUILD)/microrom.mem

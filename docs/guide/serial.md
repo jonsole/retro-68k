@@ -337,7 +337,7 @@ Every other byte goes straight through. (This is the scheme SLIP, an old serial-
 | `$02` | `$FD` | RESET | Reset the computer, with RESETWHY.USB set |
 | `$03` | `$FC` | UPLOAD | Reset the computer with RESETWHY.UPLOAD set, so the boot ROM waits for a program over the link |
 
-- A command's 3 bytes and the escape bytes are removed from the data: your program sees only the data, in order, and so does the DMA engine.
+- A command's 3 bytes and the escape bytes are removed from the data: your program sees only the data, in order.
 - No data byte ever waits for the next one, so a message can end with any byte.
 - A broken command (a wrong inverse, or an unknown c) is dropped.
 - A plain terminal program sends its bytes unescaped. That is fine for ASCII text, which never contains `$C0` or `$DB`. For binary data, or non-ASCII text, use the PC tool `tools/rlink.py`, which escapes.
@@ -398,9 +398,9 @@ Some programs need every byte the PC sends, unchanged and unescaped. Clearing SE
 
 While CTLLOCK is set, the escapes are still decoded, so the PC must keep escaping. With both CTLEN and CTLLOCK clear, every byte goes to the FIFO as it is, `$C0` and `$DB` too, and the PC must not escape.
 
-## Bulk Transfers with DMA
+## Bulk Transfers
 
-The DMA engine, when it is built, will be able to move whole files between the link and Chip RAM by itself, paced by the FIFOs, while the CPU does other work. The link is the DMA engine's port 1. Commands from the PC are still recognised during a DMA transfer. The DMA engine has its own chapter.
+The CPU moves every byte, through SERDATA. There is no DMA for the link: the DMA engine that could copy between it and Chip RAM was replaced by the blitter in November 2026, which works in Chip RAM only (Blitter Hardware chapter).
 
 ## Summary of Serial Registers
 

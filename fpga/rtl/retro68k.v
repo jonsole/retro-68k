@@ -157,9 +157,6 @@ module retro68k #(
     wire [1:0]  rom_we;
     wire [14:1] rom_addr;
     wire [15:0] rom_wdata, rom_rdata;
-    wire        rom_en_b;
-    wire [14:1] rom_addr_b;
-    wire [15:0] rom_rdata_b;
     // The register bus: the CPU's accesses (bus_if) and the copper's writes.
     // A CPU access on the bus goes first; the copper's write waits a clock.
     wire        c_rb_rd, c_rb_wr;
@@ -171,18 +168,11 @@ module retro68k #(
     wire [31:0] cw_wdata;
     wire [3:0]  cw_be;
     wire        cw_go    = cw_req && !c_rb_rd && !c_rb_wr;
-    // ... and the DMA engine's accesses, after the CPU's and the copper's
-    wire        dx_req, dx_we;
-    wire [23:2] dx_addr;
-    wire [31:0] dx_wdata;
-    wire [3:0]  dx_be;
-    wire        dx_go    = dx_req && !c_rb_rd && !c_rb_wr && !cw_req;
-    wire        rb_rd    = c_rb_rd || (dx_go && !dx_we);
-    wire        rb_wr    = c_rb_wr || cw_go || (dx_go && dx_we);
-    wire [23:2] rb_addr  = cw_go ? cw_addr  : dx_go ? dx_addr  : c_rb_addr;
-    wire [31:0] rb_wdata = cw_go ? cw_wdata : dx_go ? dx_wdata : c_rb_wdata;
-    wire [3:0]  rb_be    = cw_go ? cw_be    : dx_go ? dx_be    : c_rb_be;
-    wire [1:0]  rb_who   = cw_go ? 2'd1 : dx_go ? 2'd2 : 2'd0;          // for the palette's held high halves
+    wire        rb_rd    = c_rb_rd;
+    wire        rb_wr    = c_rb_wr || cw_go;
+    wire [23:2] rb_addr  = cw_go ? cw_addr  : c_rb_addr;
+    wire [31:0] rb_wdata = cw_go ? cw_wdata : c_rb_wdata;
+    wire [3:0]  rb_be    = cw_go ? cw_be    : c_rb_be;
     wire [31:0] rd_sys, rd_ser;
     wire        iack;
     wire [2:0]  iack_level;
@@ -219,20 +209,18 @@ module retro68k #(
     wire        cop_req, cop_ack, cop_rvalid;
     wire [21:1] cop_addr;
     wire [1:0]  cop_pri;
-    wire        blt_req, blt_we, blt_ack, blt_rvalid, blt_high;
+    wire        blt_req, blt_we, blt_ack, blt_rvalid;
     wire [21:1] blt_addr;
     wire [15:0] blt_wdata;
     wire [1:0]  blt_be;
     wire [39:0] memplan;                   // MEMSLOT0-4 (in video.v): slot n in bits 8n+7..8n
 
     // The slot plan (spec 5, section 6.2). Requesters by number: 0 layers,
-    // 1 sprites, 2 audio, 3 copper, 4 CPU, 5 DMA engine, 6 DMA port. While
-    // a nasty copper (COPCON.PRI 2) or a HIGH DMA engine job asks, it owns
-    // slot 0 in place of the CPU, whatever MEMSLOT0 says.
+    // 1 sprites, 2 audio, 3 copper, 4 CPU, 5 blitter, 6 DMA port. While
+    // a nasty copper (COPCON.PRI 2) asks, it owns slot 0 in place of the
+    // CPU, whatever MEMSLOT0 says.
     wire        nasty  = cop_req && cop_pri == 2'd2;
-    wire        hijob  = blt_req && blt_high;
-    wire [6:0]  own0   = (nasty || hijob) ? {memplan[6], hijob || memplan[5], 1'b0, nasty || memplan[3], memplan[2:0]}
-                                          : memplan[6:0];
+    wire [6:0]  own0   = nasty ? {memplan[6:5], 2'b01, memplan[2:0]} : memplan[6:0];
     wire [34:0] slot_owner = {memplan[38:32], memplan[30:24], memplan[22:16], memplan[14:8], own0};
     wire [4:0]  slot_lock  = {memplan[39], memplan[31], memplan[23], memplan[15], memplan[7]};
 
@@ -247,7 +235,7 @@ module retro68k #(
         .slot_owner(slot_owner), .slot_lock(slot_lock),
         .req   ({dma_req, blt_req, m_req, cop_req, aud_req, spr_req, disp_req}),
         .urgent({5'd0, spr_urgent, disp_urgent}),
-        .high  ({1'b0, blt_high, 1'b0, cop_pri != 2'd0, 3'd0}),
+        .high  ({3'd0, cop_pri != 2'd0, 3'd0}),
         .we    ({dma_we, blt_we, m_we, 4'd0}),
         .addr  ({dma_addr, blt_addr, m_addr, cop_addr, aud_addr, spr_addr, disp_addr}),
         .wdata ({dma_wdata, blt_wdata, m_wdata, 64'd0}),
@@ -272,7 +260,7 @@ module retro68k #(
 
     bootrom #(.INIT(ROM_INIT)) rom (
         .clk(clk100), .en(rom_en), .we(rom_we), .addr(rom_addr), .wdata(rom_wdata),
-        .rdata(rom_rdata), .en_b(rom_en_b), .addr_b(rom_addr_b), .rdata_b(rom_rdata_b)
+        .rdata(rom_rdata)
     );
 
     // ---------------------------------------------------------------- system block
@@ -288,18 +276,12 @@ module retro68k #(
 
     // The USB link survives resets it causes itself (spec 14), so only power-on resets it
     wire ser_irq;
-    // DMA engine ports: 0 the SD card, 1 the serial FIFOs; timers starting DMA channels
-    wire       p0_rxv, p0_rxpop, p0_txr, p0_txpush;
-    wire       p_rxv, p_rxpop, p_txr, p_txpush;
-    wire [7:0] p0_rxd, p_rxd, p_txd;
-    wire [3:0] tmr_irq, tmr_dma_start;
-    wire [7:0] tmr_dma_ch;
+    wire [3:0] tmr_irq;
     serial ser (
         .clk(clk100), .rst(por100), .us_tick(us_tick),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_ser),
         .irq(ser_irq), .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
-        .p_rxv(p_rxv), .p_rxd(p_rxd), .p_rxpop(p_rxpop), .p_txr(p_txr), .p_txpush(p_txpush), .p_txd(p_txd),
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
     );
@@ -310,7 +292,7 @@ module retro68k #(
     wire [10:0] beam_v, beam_h;
     video vid (
         .clk(clk100), .rst(dev_rst),
-        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be), .rb_who(rb_who),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be), .rb_cop(cw_go),
         .rb_rdata(rd_vid),
         .irq_vblank(irq_vblank), .irq_line(irq_line), .irq_viderr(irq_viderr),
         .line_tick(line_tick), .frame_tick(frame_tick), .beam_v(beam_v), .beam_h(beam_h),
@@ -321,8 +303,7 @@ module retro68k #(
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
 
-    wire       dmx_idle;               // the DMA engine (below)
-    wire [3:0] dmx_irq;
+    wire       blt_idle, blt_irq;      // the blitter (below)
 
     // ---------------------------------------------------------------- copper (spec 10)
     wire cop_irq;
@@ -334,25 +315,18 @@ module retro68k #(
         .mem_req(cop_req), .mem_addr(cop_addr), .mem_pri(cop_pri), .mem_ack(cop_ack),
         .mem_rvalid(cop_rvalid), .mem_rdata(mem_rdata),
         .beam_v(beam_v), .beam_h(beam_h), .vblank(frame_tick), .dmacon(dmacon),
-        .blt_idle(dmx_idle),
+        .blt_idle(blt_idle),
         .irq(cop_irq)
     );
 
-    // ---------------------------------------------------------------- DMA engine and blitter (spec 11)
-    dmx #(.CHIP_TOP({CHIPMB[3:0], 20'd0})) dx (
+    // ---------------------------------------------------------------- blitter (spec 11)
+    dmx dx (
         .clk(clk100), .rst(dev_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_dmx),
-        .dx_req(dx_req), .dx_we(dx_we), .dx_addr(dx_addr), .dx_wdata(dx_wdata), .dx_be(dx_be),
-        .dx_go(dx_go), .rb_rdall(rb_rdall),
-        .rom_en(rom_en_b), .rom_addr(rom_addr_b), .rom_rdata(rom_rdata_b),
-        .p0_rxv(p0_rxv), .p0_rxd(p0_rxd), .p0_rxpop(p0_rxpop), .p0_txr(p0_txr), .p0_txpush(p0_txpush),
-        .p1_rxv(p_rxv), .p1_rxd(p_rxd), .p1_rxpop(p_rxpop), .p1_txr(p_txr), .p1_txpush(p_txpush), .p_txd(p_txd),
-        .blt_high(blt_high),
-        .tmr_start(tmr_dma_start), .tmr_ch(tmr_dma_ch),
         .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
         .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
-        .dmacon(dmacon), .idle(dmx_idle), .irq(dmx_irq)
+        .dmacon(dmacon), .idle(blt_idle), .irq(blt_irq)
     );
 
     // ---------------------------------------------------------------- audio (spec 6)
@@ -373,7 +347,7 @@ module retro68k #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_tmr),
         .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
-        .irq(tmr_irq), .dma_start(tmr_dma_start), .dma_ch(tmr_dma_ch), .wd_reset(wd_reset)
+        .irq(tmr_irq), .wd_reset(wd_reset)
     );
 
     // ---------------------------------------------------------------- SD card (spec 15)
@@ -381,8 +355,7 @@ module retro68k #(
         .clk(clk100), .rst(dev_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_sd),
-        .sd_sclk(sd_sclk), .sd_mosi(sd_mosi), .sd_miso(sd_miso), .sd_cs0_n(sd_cs0_n), .sd_cs1_n(sd_cs1_n),
-        .p_rxv(p0_rxv), .p_rxd(p0_rxd), .p_rxpop(p0_rxpop), .p_txr(p0_txr), .p_txpush(p0_txpush), .p_txd(p_txd)
+        .sd_sclk(sd_sclk), .sd_mosi(sd_mosi), .sd_miso(sd_miso), .sd_cs0_n(sd_cs0_n), .sd_cs1_n(sd_cs1_n)
     );
 
     // ---------------------------------------------------------------- PS/2 keyboard (spec 16)
@@ -403,7 +376,7 @@ module retro68k #(
         .clk(clk100), .rst(dev_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata), .rb_be(rb_be),
         .rb_rdata(rd_int),
-        .req({6'd0, kb_irq, 1'b0, ser_irq, tmr_irq, 1'b0, aud_irq, 1'b0, dmx_irq, irq_viderr, cop_irq, irq_line, irq_vblank}),
+        .req({6'd0, kb_irq, 1'b0, ser_irq, tmr_irq, 1'b0, aud_irq, 4'd0, blt_irq, irq_viderr, cop_irq, irq_line, irq_vblank}),
         .nmi_button(nmi_s[1]), .nmi_usb(cmd_break),
         .level(int_level), .iack(iack), .iack_level(iack_level), .iack_vector(iack_vector)
     );

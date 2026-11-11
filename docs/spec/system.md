@@ -45,7 +45,7 @@ RESETWHY shows the cause of the last reset. It is kept in the system control reg
 All the sources above give the same **full reset**:
 
 - The 68000 is reset and starts again from the vectors at address 0 (section 3).
-- Every custom register and system device goes back to its reset value: video off, sprites, copper, DMA engine and audio stopped, all interrupts off, timers stopped, watchdog off, keyboard settings back to default.
+- Every custom register and system device goes back to its reset value: video off, sprites, copper, blitter and audio stopped, all interrupts off, timers stopped, watchdog off, keyboard settings back to default.
 - The ROM overlay is turned on.
 - **Chip RAM keeps its contents.** Chip RAM is static RAM (SRAM), which holds its data for as long as the board is powered, with no refresh. So after anything except power-on, memory holds what it held before. Debug tools can look at what a crashed program left behind, and software can choose to keep data across resets (as some Amiga programs did).
 - **The boot ROM keeps its contents,** including any changes made while it was writable (section 3.3). Only reloading the FPGA restores the original.
@@ -63,7 +63,7 @@ The SRAM needs no start-up sequence, so steps 2 and 3 take a few microseconds. A
 
 The 68000's RESET instruction resets external hardware without resetting the CPU. Here it resets:
 
-- the custom hardware (video, sprites, copper, DMA engine, audio) and its registers,
+- the custom hardware (video, sprites, copper, blitter, audio) and its registers,
 - the interrupt controller, timers (except the watchdog and the 64-bit time counter), SD card controller, keyboard controller and I2C master.
 
 It does **not** change the overlay, memory, the watchdog, the time counter, RESETWHY, or the USB link. An operating system can use it to put all the hardware into a known state without restarting.

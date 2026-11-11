@@ -2,7 +2,7 @@
 
 Status: **draft for review**
 
-The interrupt controller gathers every interrupt request in the machine and passes them to the 68000. Each source gets **its own vector**, so the CPU jumps straight to the right handler with no need to work out who interrupted. Each source's **priority level** can be changed. The controller lives in the **system area** at `0xF00000`, so DMA jobs and the copper cannot change it.
+The interrupt controller gathers every interrupt request in the machine and passes them to the 68000. Each source gets **its own vector**, so the CPU jumps straight to the right handler with no need to work out who interrupted. Each source's **priority level** can be changed. The controller lives in the **system area** at `0xF00000`, so the copper cannot change it.
 
 ## 1. Summary
 
@@ -29,7 +29,7 @@ The interrupt controller gathers every interrupt request in the machine and pass
 
 ## 3. How an interrupt reaches the CPU
 
-1. A unit (video, audio, DMA engine, timer…) sets a status flag. If that flag's enable is on in the unit, the unit raises its **request line** to the controller. Each unit keeps its own flags and enables, as described in its spec.
+1. A unit (video, audio, blitter, timer…) sets a status flag. If that flag's enable is on in the unit, the unit raises its **request line** to the controller. Each unit keeps its own flags and enables, as described in its spec.
 2. If the source is enabled in **INTENA** and the master enable is on, the request is **pending**.
 3. The controller finds the highest level with a pending source and drives the 68000's IPL lines with that level.
 4. When the CPU's interrupt mask allows it, the 68000 runs an **interrupt-acknowledge cycle** for that level. The controller answers with the vector of the pending source at that level with the lowest source number, and asserts /DTACK. This is a normal internal bus cycle, with no memory cycle and no wait states (spec 5, section 5).
@@ -49,7 +49,8 @@ Requests are **level-sensitive**: a source stays pending until its unit's flag i
 | 1 | 65 | LINE | Video: line compare (VIDSTAT.LINE) | 5 |
 | 2 | 66 | COPPER | The copper: COPSTAT.IRQ (raised by a write to COPINT) with COPCON.IRQEN; cleared by writing 1 to COPSTAT.IRQ (spec 10) | 5 |
 | 3 | 67 | VIDERR | Video: a layer ran short (VIDSTAT.OVERRUN, spec 4, section 5.3) | 5 |
-| 4–7 | 68–71 | DMA0–DMA3 | DMA engine channels 0–3: a descriptor with IRQ finished, or an error (DMXINT with DMXINTEN, spec 11) | 4 |
+| 4 | 68 | BLT | The blitter: a job with IRQ ended, or the blitter stopped (DMXINT with DMXINTEN, spec 11) | 4 |
+| 5–7 | 69–71 | – | Not used (were DMA engine channels 1–3) | 4 |
 | 8 | 72 | – | Not used in version 1 (was AUDSTR; there is no audio stream) | 0 (off) |
 | 9 | 73 | AUDIO | Audio: a channel took its registers, at its start or the end of a block (AUDSTAT with AUDINTEN, spec 6) | 4 |
 | 10 | 74 | – | Not used in version 1 (was AUDERR) | 0 (off) |

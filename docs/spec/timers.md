@@ -2,7 +2,7 @@
 
 Status: **draft for review**
 
-Timers give software a sense of time: a steady tick for the operating system, tempo for music players, timeouts, delays and measuring how long code takes. They live in the **system area** at `0xF00000` (with the interrupt controller and serial port), so DMA jobs and the copper cannot change them.
+Timers give software a sense of time: a steady tick for the operating system, tempo for music players, timeouts, delays and measuring how long code takes. They live in the **system area** at `0xF00000` (with the interrupt controller and serial port), so the copper cannot change them.
 
 ## 1. Summary
 
@@ -12,7 +12,7 @@ Timers give software a sense of time: a steady tick for the operating system, te
 | General timers | 4, each with a 32-bit counter and a 16-bit prescaler |
 | What they count | Prescaled 100 MHz clock, video lines, video frames, or another timer running out (to chain timers) |
 | Modes | One-shot or repeating |
-| When a timer runs out | Interrupt (level 6, vectored), and/or start a DMA engine channel with no CPU work |
+| When a timer runs out | Interrupt (level 6, vectored) |
 | Watchdog | Resets the computer if software stops kicking it in time; a register says why the last reset happened |
 
 ## 2. Comparison with the Amiga
@@ -24,7 +24,6 @@ Timers give software a sense of time: a steady tick for the operating system, te
 | Chaining | Timer B can count timer A | Any timer can count the one before it |
 | Other count sources | CNT pin | Video lines and frames |
 | Time of day | 24-bit counter of frames or mains cycles | 64-bit 10 ns time counter |
-| Starting other hardware | No | A timer can start a DMA channel |
 | Watchdog | No | Yes |
 
 ## 3. Time counter
@@ -41,7 +40,7 @@ Each timer has a **COUNT** that goes down by 1 on each tick of its source. When 
 
 - **Repeating mode:** COUNT is reloaded from **RELOAD** and counting goes on. A timer with RELOAD = n fires every n + 1 ticks.
 - **One-shot mode:** the timer stops (EN clears itself).
-- In either mode, the timer can raise an **interrupt**, start a **DMA channel**, and count as a tick for the next timer.
+- In either mode, the timer can raise an **interrupt**, and count as a tick for the next timer.
 
 Writing COUNT sets it directly. Writing RELOAD takes effect at the next underflow, so a repeating timer's period can be changed without a glitch.
 
@@ -63,7 +62,6 @@ PRESCALE only applies to SRC 0.
 | Operating system tick, 1000 Hz | SRC 0, PRESCALE 99 (1 MHz), RELOAD 999, repeating, interrupt |
 | Music at 125 BPM with 24 ticks per beat (50 Hz) | SRC 0, PRESCALE 99, RELOAD 19,999, repeating, interrupt |
 | Timeout of 2 seconds | SRC 0, PRESCALE 99, COUNT 1,999,999, one-shot, interrupt |
-| Refill an audio stream half without the CPU | Any rate, repeating, start DMA channel 2 (whose chain copies the next block) |
 | Exact delay in video lines | SRC 1, COUNT n, one-shot |
 
 Video lines and frames are counted from the video timing (spec 4), so they tick even when video output is blank, as long as the timing generator runs.
@@ -95,7 +93,7 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 
 | Offset | Name | Bits | Description |
 |--------|------|------|-------------|
-| `+0x00` | CTRL | EN (0), REPEAT (1), SRC (3–2), IRQ (4), DMA (5), DMACH (7–6) | Running; repeating; source (4.2); interrupt on underflow; start DMA channel DMACH on underflow |
+| `+0x00` | CTRL | EN (0), REPEAT (1), SRC (3–2), IRQ (4) | Running; repeating; source (4.2); interrupt on underflow. (Bits 7–5 were DMA and DMACH, a timer starting a DMA engine channel; they went with the engine's channels, spec 11, and read as 0) |
 | `+0x04` | PRESCALE | 15–0 | Clock divider for SRC 0: 100 MHz ÷ (PRESCALE + 1) |
 | `+0x08` | RELOAD | 31–0 | Value loaded at each underflow in repeating mode |
 | `+0x0C` | COUNT | 31–0 | Current count; writing sets it |
@@ -109,7 +107,7 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 | `0x1C4` | WDTIME | 15–0 | Time allowed between kicks, in milliseconds |
 | `0x1C8` | WDKICK | 15–0 | Write `0x5A5A` to restart the time; any other value resets at once |
 
-**Interrupts:** each timer is its own source in the interrupt controller (spec 13), TIMER0–TIMER3, with its own vector. Default level 6. Starting a DMA channel works like a CPU write of START to that channel's CHCTRL (spec 11, section 8), and is independent of the interrupt.
+**Interrupts:** each timer is its own source in the interrupt controller (spec 13), TIMER0–TIMER3, with its own vector. Default level 6.
 
 ## 7. FPGA resources
 
@@ -124,12 +122,12 @@ In the system area at `0xF00000`. Spec 3 sets the final addresses. All registers
 |---|------|
 | T1 | ~~A real-time clock that survives power-off.~~ Resolved: the KS3 has a battery-backed real-time clock on its I2C bus. Software reads and sets the date and time through the system I2C master (spec 7), and can then keep time with the 64-bit counter |
 | T2 | Capture mode (save COUNT when an external pin changes), e.g. for measuring pulses on spare header pins |
-| T3 | Should timers also be able to start the copper (COPJMP) or a sound channel? |
+| T3 | Should timers be able to start the copper (COPJMP), a sound channel or a blitter job? (Version 1 could start a DMA engine channel; that went with the channels, spec 11) |
 
 ## 9. Tests
 
 - **Time counter:** reading during a carry from the low to the high half always gives a consistent value.
 - **Rates:** each source and several PRESCALE values; repeating and one-shot; RELOAD changes take effect at the next underflow only.
 - **Chaining:** timers 0 and 1 chained as a 64-bit timer.
-- **Interrupts and DMA starts:** each timer raises its own vector; a DMA start happens on underflow with no CPU involvement.
+- **Interrupts:** each timer raises its own vector.
 - **Watchdog:** expiry resets and sets RESETWHY.WATCHDOG; a wrong kick value resets at once; LOCK blocks changes until reset; the watchdog is off after reset.
