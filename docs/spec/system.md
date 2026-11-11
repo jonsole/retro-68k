@@ -19,7 +19,7 @@ The other system-area devices have their own specs: timers (12), interrupt contr
 | Start-up | A few microseconds from the end of FPGA configuration to the first 68000 instruction |
 | Start-up progress | Shown as the screen's background colour (Amiga-style) and on the serial console. The board has no user LEDs or switches |
 | Start-up options | Keys held during reset, and the DivMMC button |
-| Buttons | Reset button = reset; Multiface button = NMI; DivMMC button = "monitor" button |
+| Buttons | Reset button = reset (a long press is the same as a short one: an upload comes only from the PC); Multiface button = NMI; DivMMC button = "monitor" button |
 | I2C | A small I2C master for the battery-backed real-time clock and the HDMI DDC |
 | Installing | Development: JTAG straight into the FPGA. Everyday use: an extra Next core in a free flash slot |
 
@@ -101,11 +101,11 @@ Rebuilding the FPGA with Vivado takes minutes. To try new boot ROM code quickly:
 - Setting **SYSCON.ROMWE** makes the boot ROM writable.
 - A program (or the USB upload loader) copies a new ROM image to `0xF80000`, then resets.
 - The new ROM runs from the next reset onwards, until the FPGA is reloaded.
-- **SYSCON.ROMLOCK** makes ROMWE impossible to set until the next power-on, for when the system should not be changed by accident. The boot ROM sets it unless the development key (D) is held during reset (section 5).
+- **SYSCON.ROMLOCK** makes ROMWE impossible to set until the next power-on, for when the system should not be changed by accident. The boot ROM decides it at power-on only (RESETWHY.POWER): it sets it unless the development key (D) is held (section 5). Later resets leave it as it is, so a development session can still take a new ROM image after an UPLOAD reset (the shared monitor spec, section 9).
 
 ## 4. What the boot ROM does
 
-The boot ROM's own spec will define this in detail. In outline:
+The boot ROM's own spec will define this in detail; the monitor, the upload protocol, the image header and the boot file (`BOOT.68K`) are in the shared spec `monitor.md`, the same file in retro68k and retro-z80. In outline:
 
 1. Show progress as the screen's background colour, and on the serial console, at each step (section 5).
 2. Read RESETWHY, the keys held down and the DivMMC button.
@@ -220,8 +220,7 @@ System control registers, in the system area at `0xF00000`. Spec 3 sets the fina
 | # | Item |
 |---|------|
 | SY1 | Measure the FPGA configuration time from the KS3's flash, and whether a faster flash read mode can be set in the bitstream |
-| SY2 | The boot ROM spec: monitor commands, upload protocol (with spec 14), boot file name and format, background colour codes |
-| SY3 | Should a long press of the reset button (e.g. 3 seconds) reset into UPLOAD? |
+| SY2 | The boot ROM spec: the monitor commands, upload protocol, image header and boot file are settled in the shared spec `monitor.md` (agreed with retro-z80). Left for retro68k's own boot ROM spec: its break instruction (planned ILLEGAL, `0x4AFC`), ROM calls (planned TRAP #15, function number in D0), traps, address limits, registers whose reads have side effects, what a program inherits, and the background colour codes (the shared spec's open point M2) |
 | SY4 | Which real-time clock chip the KS3 uses, and its I2C address and register layout |
 | SY5 | The KS3 core file format and flash slot size, and how a core is installed from the SD card |
 
