@@ -114,14 +114,6 @@ def main():
         n = i % NCHAINS
         chains[n].append(make_job(rng, REGION + n * AREA, wins[n], *args))
 
-    # The first job after reset reads the old pixels and plots some. The
-    # core does not reset the register that holds them, and a job that
-    # never reads (a plain 8-bit line, say) would write unknown bits in
-    # simulation (in hardware the bits cancel): the SRAM model counts those
-    # as errors.
-    first = chains[0][0]
-    first.update(tri=0, minterm=0x66, nolast=0, p0=wins[0]["clip"][0:2], p1=wins[0]["clip"][2:4])
-
     def wl(a, v):
         mem[a:a + 4] = (v & 0xFFFFFFFF).to_bytes(4, "big")
 

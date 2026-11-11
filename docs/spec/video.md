@@ -332,7 +332,7 @@ Layer n (0–2) is at `0x100 + n × 0x80`.
 | `+0x10` | BPLSTRIDE | 15–0, signed, even | Bytes from one line's start to the next (section 4.4) |
 | `+0x14` | BPLDMA | SETCLR (15), PLANES (7–0) | DMA enable per plane (chunky: bit 0 for the layer). Set/clear. All on after reset |
 | `+0x20`–`+0x3C` | BPL0PT–BPL7PT | 22–0, even | Plane pointers (chunky: BPL0PT only) |
-| `+0x40`–`+0x5C` | BPL0DAT–BPL7DAT | 15–0 | Data registers: the next group (chunky with b bits per pixel: BPL0DAT–BPL(b−1)DAT) |
+| `+0x40`–`+0x5C` | BPL0DAT–BPL7DAT | 15–0 | Data registers: the next group (chunky with b bits per pixel: BPL0DAT–BPL(b−1)DAT). Write-only: they read as 0 |
 
 ### 6.3 Memory-mapped area
 

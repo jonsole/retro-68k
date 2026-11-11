@@ -109,8 +109,8 @@ module video (
     reg  [3:0]  l_sx [0:2];
     reg  [15:0] l_mod [0:2];           // BPLSTRIDE (bit 0 is 0)
     reg  [7:0]  l_pm [0:2];            // BPLDMA: a DMA enable a plane (chunky: bit 0 for the layer)
-    wire [22:0] ptr_rdata;             // the pointer the bus addresses (from the layer fetch)
-    wire [15:0] dat_rdata;             // ... and the data register
+    wire [22:0] ptr_rdata;             // the pointer the bus addresses (from the layer fetch);
+                                       // the data registers are write-only (DATREAD 0)
 
     // From the pixel domain
     reg  [10:0] p_hc, p_vc;            // beam position (pixel domain)
@@ -225,7 +225,6 @@ module video (
             default: ;
         endcase
         if (rb_rd && sel_pt)  reg_q <= {9'd0, ptr_rdata};
-        if (rb_rd && sel_dat) reg_q <= {16'd0, dat_rdata};
         if (rb_rd && sel_glob) case (off)
             `RM_VIDCON:     reg_q <= {26'd0, vidcon};
             `RM_VIDSTAT:    reg_q <= {23'd0, p_invblank, vidstat};
@@ -463,7 +462,7 @@ module video (
     function [2:0] depth_of(input [23:0] c);
         depth_of = c[1] ? c[18:16] : (3'd1 << c[3:2]) - 1'b1;
     endfunction
-    layer_fetch #(.NL(3), .AW(21), .PW(23), .PLANAR(1), .TILES(0), .DATWRITE(1), .LITTLE(0),
+    layer_fetch #(.NL(3), .AW(21), .PW(23), .PLANAR(1), .TILES(0), .DATWRITE(1), .DATREAD(0), .LITTLE(0),
                   .URG_BASE(15), .URG_WORD(5)) lf (
         .clk(clk), .rst(rst), .enable(fetch_en),
         .line_t(line_t), .line_go(line_go), .line_gen(line_gen),
@@ -477,7 +476,7 @@ module video (
         .tile(3'd0), .mapw(6'd0), .ty(30'd0), .tcol(21'd0), .mappt(69'd0), .patpt(69'd0),
         .ptr_sel(pd_sel), .ptr_wr(rb_wr && sel_pt), .ptr_wdata(ptr_wdata), .ptr_rdata(ptr_rdata),
         .dat_wr(rb_wr && sel_dat), .dat_sel(pd_sel), .dat_wdata(rb_wdata[15:0]), .dat_be(rb_be[1:0]),
-        .dma_en({l_pm[2], l_pm[1], l_pm[0]}), .dat_rdata(dat_rdata),
+        .dma_en({l_pm[2], l_pm[1], l_pm[0]}), .dat_rdata(),
         .dat(dat), .attr(), .gset(gset), .fill_t(fill_t), .take_t(take_t),
         .req(disp_req), .urgent(disp_urgent), .addr(disp_addr), .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );

@@ -19,12 +19,6 @@ start:      move.w  #$2700,sr
             move.l  #SERCON_EN_M|SERCON_TXDROP_M,SERCON(a5)
             move.w  #DMACON_SETCLR_M|DMACON_DMAEN_M|DMACON_BLTEN_M,DMACON+2(a4)
 
-            lea     prime(pc),a1        ; a first job that reads C (see dgen.py)
-            bsr     setjob
-            move.l  #BLTCMD_RUN_M,BLTCMD(a4)
-.w0:        btst    #BLTSTAT_BUSY_B,BLTSTAT+3(a4)
-            bne.s   .w0
-
             lea     jobs(pc),a1         ; the CPU in ROM
             moveq   #NJOBS-1,d7
 .j:         bsr     setjob
@@ -64,7 +58,6 @@ setjob:     lea     BLTCTRL(a4),a2
             rts
 
 ;                   CTRL  BPT  DPT  SIZE  APT  STRIDE (B<<16 | D)  VALUE (ASTRIDE<<16 | VALUE)  NEXT
-prime:      dc.l    ($66<<BLTCTRL_MINTERM_B)|(3<<BLTCTRL_BPP_B)|BLTCTRL_BCONST_M, 0, $100000, (1<<16)|2, 0, 0, 0, 0
 ; 64 KB each: 4 rows of 16 KB (the last: 4 rows of 65,529 pixels at 1 bpp)
 jobs:       dc.l    C8|BLTCTRL_BCONST_M, 0, $100000, (4<<16)|$4000, 0, $4000, $0707, 0                 ; a fill
             dc.l    C8, $120000, $100000, (4<<16)|$4000, 0, ($4000<<16)|$4000, 0, 0                    ; a copy

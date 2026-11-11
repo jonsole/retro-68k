@@ -564,35 +564,35 @@ L_BPL7PT                     equ $3C         ; RW, spec 4/4.4 (add to Ln)
 L_BPL7PT_ADDR_B              equ $0
 L_BPL7PT_ADDR_W              equ $17
 L_BPL7PT_ADDR_M              equ $7FFFFF
-L_BPL0DAT                    equ $40         ; RW, spec 4/5.1 (add to Ln)
+L_BPL0DAT                    equ $40         ; W, spec 4/5.1 (add to Ln)
 L_BPL0DAT_DATA_B             equ $0
 L_BPL0DAT_DATA_W             equ $10
 L_BPL0DAT_DATA_M             equ $FFFF
-L_BPL1DAT                    equ $44         ; RW, spec 4/5.1 (add to Ln)
+L_BPL1DAT                    equ $44         ; W, spec 4/5.1 (add to Ln)
 L_BPL1DAT_DATA_B             equ $0
 L_BPL1DAT_DATA_W             equ $10
 L_BPL1DAT_DATA_M             equ $FFFF
-L_BPL2DAT                    equ $48         ; RW, spec 4/5.1 (add to Ln)
+L_BPL2DAT                    equ $48         ; W, spec 4/5.1 (add to Ln)
 L_BPL2DAT_DATA_B             equ $0
 L_BPL2DAT_DATA_W             equ $10
 L_BPL2DAT_DATA_M             equ $FFFF
-L_BPL3DAT                    equ $4C         ; RW, spec 4/5.1 (add to Ln)
+L_BPL3DAT                    equ $4C         ; W, spec 4/5.1 (add to Ln)
 L_BPL3DAT_DATA_B             equ $0
 L_BPL3DAT_DATA_W             equ $10
 L_BPL3DAT_DATA_M             equ $FFFF
-L_BPL4DAT                    equ $50         ; RW, spec 4/5.1 (add to Ln)
+L_BPL4DAT                    equ $50         ; W, spec 4/5.1 (add to Ln)
 L_BPL4DAT_DATA_B             equ $0
 L_BPL4DAT_DATA_W             equ $10
 L_BPL4DAT_DATA_M             equ $FFFF
-L_BPL5DAT                    equ $54         ; RW, spec 4/5.1 (add to Ln)
+L_BPL5DAT                    equ $54         ; W, spec 4/5.1 (add to Ln)
 L_BPL5DAT_DATA_B             equ $0
 L_BPL5DAT_DATA_W             equ $10
 L_BPL5DAT_DATA_M             equ $FFFF
-L_BPL6DAT                    equ $58         ; RW, spec 4/5.1 (add to Ln)
+L_BPL6DAT                    equ $58         ; W, spec 4/5.1 (add to Ln)
 L_BPL6DAT_DATA_B             equ $0
 L_BPL6DAT_DATA_W             equ $10
 L_BPL6DAT_DATA_M             equ $FFFF
-L_BPL7DAT                    equ $5C         ; RW, spec 4/5.1 (add to Ln)
+L_BPL7DAT                    equ $5C         ; W, spec 4/5.1 (add to Ln)
 L_BPL7DAT_DATA_B             equ $0
 L_BPL7DAT_DATA_W             equ $10
 L_BPL7DAT_DATA_M             equ $FFFF
