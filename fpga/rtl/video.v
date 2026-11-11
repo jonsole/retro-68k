@@ -491,7 +491,7 @@ module video (
     wire [31:0] sp_pal;
     wire [39:0] sp_ra;
     wire [127:0] sp_rd;
-    wire [47:0] sp_wpg, sp_rpg;
+    wire [47:0] sp_wpg, sp_rp;
     wire [7:0]  sp_fl, sp_fla;
     reg  [31:0] coll_acc, coll_line;
     reg         coll_t;
@@ -503,7 +503,7 @@ module video (
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
         .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
         .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),
-        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp_g(sp_rpg), .flush_t(sp_fl), .flush_ack_t(sp_fla),
+        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp(sp_rp), .flush_t(sp_fl), .flush_ack_t(sp_fla),
         .coll_line(coll_line), .coll_t(coll_t)
     );
 
@@ -536,11 +536,12 @@ module video (
     generate for (sg = 0; sg < 8; sg = sg + 1) begin : sprs
         wire [5:0] rpb;
         assign sp_ra[5*sg +: 5] = rpb[4:0];
+        assign sp_rp[6*sg +: 6] = rpb;
         sprite_pix u (
             .clk_pix(clk_pix), .en(en_p), .t(st_now),
             .act(c_sact[sg]), .hs(c_shs[sg]), .xe(c_sxe[sg]), .lb(c_slb[sg]),
             .xstep(c_sxs[sg]), .pal(c_spal[sg]), .dma(c_sdma[sg]),
-            .head(sp_rd[16*sg +: 16]), .rp(rpb), .rp_g(sp_rpg[6*sg +: 6]), .wp_g(sp_wpg[6*sg +: 6]),
+            .head(sp_rd[16*sg +: 16]), .rp(rpb), .wp_g(sp_wpg[6*sg +: 6]),
             .flush_t(sp_fl[sg]), .flush_ack_t(sp_fla[sg]),
             .opaque(s_op[sg]), .idx(s_idx[sg]), .underrun_t(p_un[sg])
         );
