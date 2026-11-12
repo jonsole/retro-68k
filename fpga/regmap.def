@@ -128,11 +128,11 @@ reg 0x414 AUDSTART   W   6/5    CH=3:0
 reg 0x418 AUDSTOP    W   6/5    CH=3:0
 array AUD 4 0x440 0x20 6/5
   reg 0x00 CTRL      RW 6/5    BITS16=1 NEAREST=2 ONESHOT=3
-  reg 0x04 LC        RW 6/5    ADDR=22:0
-  reg 0x08 LEN       RW 6/5    SAMPLES=22:0
+  reg 0x04 LC        RW 6/5    ADDR=21:0
+  reg 0x08 LEN       RW 6/5    SAMPLES=21:0
   reg 0x0C STEP      RW 6/5    STEP=19:0
   reg 0x10 VOL       RW 6/5    L=22:16 R=6:0
-  reg 0x14 POS       R  6/5    SAMPLE=22:0
+  reg 0x14 POS       R  6/5    SAMPLE=21:0
 end
 
 # Copper (spec 10)

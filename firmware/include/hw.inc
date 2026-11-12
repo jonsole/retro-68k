@@ -776,12 +776,12 @@ AUD_CTRL_ONESHOT_B           equ $3
 AUD_CTRL_ONESHOT_M           equ $8
 AUD_LC                       equ $4          ; RW, spec 6/5 (add to AUDn)
 AUD_LC_ADDR_B                equ $0
-AUD_LC_ADDR_W                equ $17
-AUD_LC_ADDR_M                equ $7FFFFF
+AUD_LC_ADDR_W                equ $16
+AUD_LC_ADDR_M                equ $3FFFFF
 AUD_LEN                      equ $8          ; RW, spec 6/5 (add to AUDn)
 AUD_LEN_SAMPLES_B            equ $0
-AUD_LEN_SAMPLES_W            equ $17
-AUD_LEN_SAMPLES_M            equ $7FFFFF
+AUD_LEN_SAMPLES_W            equ $16
+AUD_LEN_SAMPLES_M            equ $3FFFFF
 AUD_STEP                     equ $C          ; RW, spec 6/5 (add to AUDn)
 AUD_STEP_STEP_B              equ $0
 AUD_STEP_STEP_W              equ $14
@@ -795,8 +795,8 @@ AUD_VOL_R_W                  equ $7
 AUD_VOL_R_M                  equ $7F
 AUD_POS                      equ $14         ; R, spec 6/5 (add to AUDn)
 AUD_POS_SAMPLE_B             equ $0
-AUD_POS_SAMPLE_W             equ $17
-AUD_POS_SAMPLE_M             equ $7FFFFF
+AUD_POS_SAMPLE_W             equ $16
+AUD_POS_SAMPLE_M             equ $3FFFFF
 AUD0_CTRL                    equ $440
 AUD0_LC                      equ $444
 AUD0_LEN                     equ $448

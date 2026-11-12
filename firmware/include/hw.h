@@ -690,11 +690,11 @@
 #define AUD_LC_OFS                         0x4u
 #define AUD_LC(n)                          HW_REG32(CUSTOM_BASE + AUD_AT(n) + AUD_LC_OFS)
 #define AUD_LC_ADDR_SHIFT                  0
-#define AUD_LC_ADDR_MASK                   0x7FFFFFu
+#define AUD_LC_ADDR_MASK                   0x3FFFFFu
 #define AUD_LEN_OFS                        0x8u
 #define AUD_LEN(n)                         HW_REG32(CUSTOM_BASE + AUD_AT(n) + AUD_LEN_OFS)
 #define AUD_LEN_SAMPLES_SHIFT              0
-#define AUD_LEN_SAMPLES_MASK               0x7FFFFFu
+#define AUD_LEN_SAMPLES_MASK               0x3FFFFFu
 #define AUD_STEP_OFS                       0xCu
 #define AUD_STEP(n)                        HW_REG32(CUSTOM_BASE + AUD_AT(n) + AUD_STEP_OFS)
 #define AUD_STEP_STEP_SHIFT                0
@@ -708,7 +708,7 @@
 #define AUD_POS_OFS                        0x14u
 #define AUD_POS(n)                         HW_REG32(CUSTOM_BASE + AUD_AT(n) + AUD_POS_OFS)
 #define AUD_POS_SAMPLE_SHIFT               0
-#define AUD_POS_SAMPLE_MASK                0x7FFFFFu
+#define AUD_POS_SAMPLE_MASK                0x3FFFFFu
 #define PALETTE0_OFS                       0x4000u
 #define PALETTE0_SIZE                      0x400u
 #define PALETTE0                           ((volatile uint32_t *)(uintptr_t)(CUSTOM_BASE + PALETTE0_OFS))
