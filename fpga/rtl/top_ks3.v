@@ -62,7 +62,9 @@ module top_ks3 (
     wire [7:0]  ft_d_i, ft_d_o;
     wire        ft_d_oe, ft_rd_n, ft_wr_n, ft_siwu_n;
     wire [23:0] rgb;
-    wire        hs, vs, de;
+    wire        hs, vs, de, dvi;
+    wire [15:0] snd_l, snd_r;
+    wire        snd_v;
 
     retro68k #(.ROM_INIT("boot.hex")) sys (
         .clk100(clk100), .clk40(clk40), .clk_pix(clk_pix), .clk_pix5(clk_pix5),
@@ -75,7 +77,8 @@ module top_ks3 (
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .dma_req(1'b0), .dma_we(1'b0), .dma_addr(21'd0), .dma_wdata(16'd0), .dma_be(2'b00),
         .dma_ack(), .dma_rvalid(), .dma_rdata(),
-        .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de),
+        .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de), .vid_dvi(dvi),
+        .snd_l(snd_l), .snd_r(snd_r), .snd_v(snd_v),
         .aud_l(audioext_l_o), .aud_r(audioext_r_o), .aud_m(audioint_o),
         .sd_sclk(sd_sclk_o), .sd_mosi(sd_mosi_o), .sd_cs0_n(sd_cs0_n_o), .sd_cs1_n(sd_cs1_n_o), .sd_miso(sd_miso_i),
         .ps2_clk_i(ps2_clk_io), .ps2_data_i(ps2_data_io), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
@@ -125,9 +128,11 @@ module top_ks3 (
     // ---------------------------------------------------------------- video out
     reg [2:0] prst = 3'b111;
     always @(posedge clk_pix) prst <= {prst[1:0], por};
-    hdmi_out hdmi (
+    // HDMI with the mixer's sound (retro-hw hdmi_packets); VIDCON.DVI sends plain DVI
+    hdmi_out #(.AUDIO(1), .VIC(17)) hdmi (
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rst(prst[2]),
         .rgb(rgb), .hsync(hs), .vsync(vs), .de(de),
+        .hdmi_on(!dvi), .clk(clk100), .aud_l(snd_l), .aud_r(snd_r), .aud_v(snd_v),
         .tmds_p(hdmi_p_o), .tmds_n(hdmi_n_o)
     );
     vga_out vga (

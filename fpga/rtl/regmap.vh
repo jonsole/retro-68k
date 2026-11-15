@@ -22,6 +22,7 @@
 `define RM_VIDCON_BLANKALL                  2
 `define RM_VIDCON_DIRECT                    4
 `define RM_VIDCON_SHAREPAL                  5
+`define RM_VIDCON_DVI                       6
 `define RM_VIDSTAT                          16'h0004
 `define RM_VIDSTAT_VBLANK                   0
 `define RM_VIDSTAT_LINE                     1

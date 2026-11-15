@@ -33,6 +33,8 @@
 #define VIDCON_DIRECT_MASK                 0x10u
 #define VIDCON_SHAREPAL_SHIFT              5
 #define VIDCON_SHAREPAL_MASK               0x20u
+#define VIDCON_DVI_SHIFT                   6
+#define VIDCON_DVI_MASK                    0x40u
 /* VIDSTAT: RW1C, spec 4/6.1 */
 #define VIDSTAT_OFS                        0x4u
 #define VIDSTAT                            HW_REG32(CUSTOM_BASE + VIDSTAT_OFS)
