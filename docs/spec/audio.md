@@ -193,7 +193,7 @@ A one-shot sound effect on channel 3, cutting off whatever it was playing:
 |---|------|
 | A1 | The KS3's audio filter, and the real quality of the sigma-delta output, measured on the board |
 | A2 | Closed: the interpolation carries across a block's end (section 4.4) |
-| A3 | Sound over HDMI: every 2,083 clocks (48.008 kHz, whatever AUDRATE is) the mixer's last output sample goes to retro-hw `hdmi_packets`, which sends it as 48 kHz with a measured CTS. The jack keeps AUDRATE; at another rate HDMI repeats or skips samples. Closed when heard on a display |
+| A3 | Closed: sound over HDMI, heard on the KS3. Every 2,083 clocks (48.008 kHz, whatever AUDRATE is) the mixer's last output sample goes to retro-hw `hdmi_packets`, which sends it as 48 kHz with a measured CTS. The jack keeps AUDRATE; at another rate HDMI repeats or skips samples |
 | A4 | Closed: the engine is retro-hw's `audio_engine`, with the channels' settings in LUT RAM and one multiplier used in turn |
 
 ## 9. Tests
