@@ -136,7 +136,8 @@ L1_ALT      equ $150000
 ; L2: chunky 1 bpp, 1x, the whole screen, solid, PALOFS 9; rows of 96 bytes.
 ; On lines 300-340 the copper writes the low half of its pointer mid-line
 ; (the high half stays): the rest of the line from L2_ALT, the next line
-; from L2_ALT + 96
+; from L2_ALT + 96. L0's BPLSTRIDE is written at beam pixel 0 of line 400
+; (used at line 399's end) and at pixel 8 of line 420 (used at its own end)
 L2_DATA     equ $180000
 L2_ROW      equ 96
 L2_ALT      equ $18E000
@@ -198,7 +199,11 @@ ptr_loop:   CMOVE   L2+L_BPL0PT+2,L2_ALT&$FFFF
             CJUMP   RAMLIST+(ptr_end-clist)
 ptr_next:   CWAITP  VID_X0+408
             CJUMP   RAMLIST+(ptr_loop-clist)
-ptr_end:    CSTOP
+ptr_end:    CWAIT   VID_Y0+400,0                ; BPLSTRIDE at the very start of line 400's blank: the
+            CMOVE   L0+L_BPLSTRIDE+2,0          ; line end is not yet made, so line 399's adds 0 (spec 4,
+            CWAIT   VID_Y0+420,8                ; section 4.4): lines 399-420 show one row. From pixel 8
+            CMOVE   L0+L_BPLSTRIDE+2,L0_ROW     ; it is this line's end: line 421 on, rows again
+            CSTOP
 clist_end:
     else
     ifd SPRITES

@@ -108,6 +108,11 @@ PIX_EARLY, PIX_LATE = -1, 8
 # Writes this close to a line's start (beam pixels) are not modelled: the
 # line's settings and its first groups are being taken then
 START_ZONE = 30
+# ... except BPLSTRIDE, read only at the line end's reset, which comes at
+# about logged beam pixel STRIDE_AT of the next line's blank. A write
+# logged before it is used at the end of the line before; one logged
+# STRIDE_AT + 2 or later, at the end of this line; between, either
+STRIDE_AT = 2
 
 F_GROUP = 0x00F0002E      # CTRL fields a group takes at its start: PLANAR, BPP, PLANES (and WRAP, read on each move)
 F_HS = 0x000000C0         # HSCALE: per group as well, but the line's group count is fixed at its start (not modelled)
@@ -161,6 +166,13 @@ def layer_events(regs, F, H):
     ev = [[] for _ in range(H)]
     for i, (fr, bl, bp, n, off, val, be) in enumerate(regs["laylog"]):
         if fr != F or bl < Y0 or bl >= Y0 + H:
+            continue
+        if off == 0x10 and bp < START_ZONE:
+            if STRIDE_AT <= bp < STRIDE_AT + 2:
+                raise NotModelled("BPLSTRIDE written at beam (%d, %d), as the line end is made" % (bl, bp))
+            y = bl - Y0 - (1 if bp < STRIDE_AT else 0)
+            if y >= 0:
+                ev[y].append((bp + 864 - X0 if bp < STRIDE_AT else bp - X0, i, n, off, val, be))
             continue
         if bp < START_ZONE:
             raise NotModelled("a write to layer %d at beam (%d, %d), too close to the line's start" % (n, bl, bp))

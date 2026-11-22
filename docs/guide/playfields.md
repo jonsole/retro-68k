@@ -665,7 +665,7 @@ With vertical scaling, the pointers go back to the start of the source line afte
 
 The stride, BPLSTRIDE, is the number of bytes from the start of one line of a plane to the start of the next. It takes the place of the Amiga's modulo, and it is simpler: it does not depend on how much the hardware fetches.
 
-Here is what happens to each plane pointer during one line. At the start of the line, the pointer holds the address of the line's first word. The hardware fetches the line, word by word, and the pointer moves on by 2 bytes for each word. When it fetches the line's **first** word, the hardware also saves the pointer's value: the line's start. When it fetches the line's **last** word, it sets the pointer to that saved start plus BPLSTRIDE. So:
+Here is what happens to each plane pointer during one line. At the start of the line, the pointer holds the address of the line's first word. The hardware fetches the line, word by word, and the pointer moves on by 2 bytes for each word. The pointer also keeps the line's start: the address it held when the line began. At the end of the line, a few pixels into the next line's horizontal blank, the hardware sets every pointer it fetched from to that saved start plus BPLSTRIDE. So:
 
 ```
    next line's start  =  this line's start  +  BPLSTRIDE
@@ -707,7 +707,7 @@ Other strides show the picture differently:
 - BPLSTRIDE = 0 shows the same source line on every screen line, since each line starts where the last one did.
 - BPLSTRIDE = −(row stride) steps **back** one row each line, so the picture is shown upside down. Point the pointers at the picture's last line and the picture appears flipped top to bottom. For a 320-byte-wide 8 bpp picture, that is BPLSTRIDE = −320.
 
-The stride is live. The hardware reads it at the end of the line, as the next line's horizontal blank starts, when it moves the pointers on to the next line. So a value written at any time during a line, or in the horizontal blank before it, applies at the end of that line. Changing it partway down the screen is a simple way to make effects, as Example 3-6 below shows.
+The stride is live. The hardware reads it at the end of the line, about 3 pixels into the next line's horizontal blank, when it moves the pointers on to the next line. So a value written at any time during a line, or in the horizontal blank before it from beam pixel 8 on, applies at the end of that line. Don't write it in the first 8 pixels of a line's blank: the pointers may not have moved on yet, and the new value can apply at the end of the line before. With the copper, wait for pixel 8 or later (`CWAIT line,8`), not pixel 0. Changing it partway down the screen is a simple way to make effects, as Example 3-6 below shows.
 
 ### Summary: the stride
 
@@ -938,7 +938,7 @@ The simplest way is to use one layer for each band. Give each layer a window cov
 
 ### Changing the stride partway down
 
-Because the stride is used at the end of each line, changing it during a line changes where the **next** line starts. Change BPLSTRIDE during line L and line L + 1 starts at (line L's start + new BPLSTRIDE). This is a clean way to make a one-layer split: the write can land anywhere in line L, up to the start of line L + 1's horizontal blank, which is easy to hit from an interrupt.
+Because the stride is used at the end of each line, changing it during a line changes where the **next** line starts. Change BPLSTRIDE during line L and line L + 1 starts at (line L's start + new BPLSTRIDE). This is a clean way to make a one-layer split: the write can land anywhere in line L, up to the first pixels of line L + 1's horizontal blank (the pointers move about 3 pixels in), which is easy to hit from an interrupt.
 
 - To jump to another part of memory at line L + 1, set BPLSTRIDE during line L to (address wanted − line L's start), then put the row stride back during line L + 1. The jump applies to all of the layer's planes, so the new picture must have the same plane layout.
 - To repeat a line, set BPLSTRIDE to 0 for as many lines as you want it repeated.
@@ -992,7 +992,7 @@ mirror:     move.l  a0,-(sp)
 
 On the Amiga, the copper makes splits by writing new plane pointers in the horizontal blank. You can write the pointers at any time here too, since they are live, but you need to know exactly what the hardware does with them:
 
-- A line's fetch begins at the **start of its horizontal blank** (beam pixel 0). During the line, the hardware keeps fetching until about 32 source pixels before the window's right edge, each word moving its pointer on. At the start of the next line's horizontal blank it sets each pointer it fetched from to the line's start plus BPLSTRIDE.
+- A line's fetch begins at the **start of its horizontal blank** (beam pixel 0). During the line, the hardware keeps fetching until about 32 source pixels before the window's right edge, each word moving its pointer on. About 3 pixels into the next line's horizontal blank it sets each pointer it fetched from to the line's start plus BPLSTRIDE.
 - A write to a pointer wins over the hardware's own change in the same clock, and it also sets that pointer's saved line start.
 
 So a pointer written during the gap between the layer's last fetch on line L and the start of line L + 1 (its horizontal blank) is used **as written** as the start of line L + 1: nothing is added and nothing taken off. A pointer written earlier in line L is used for the rest of line L, from the next word fetched (one or two groups past the beam), and line L + 1 then starts at the value written plus BPLSTRIDE; one written after line L + 1's horizontal blank has started is too late for its start. With a full-width window the gap is under a microsecond, too short for the CPU to hit reliably; it is meant for the copper. With the CPU, use separate layers or the stride method above.

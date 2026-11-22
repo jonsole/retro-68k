@@ -1364,7 +1364,7 @@ The copper's writes take effect exactly as the CPU's do:
 | Registers | Take effect |
 |-----------|-------------|
 | Palette, VIDCON.DIRECT, VIDCON.BLANKALL | At once, from the next pixel |
-| BPLxPT, BPLSTRIDE | At once: they are live. BPLSTRIDE is used when the pointers are reset, at the start of the next line's horizontal blank. A copper write to a pointer wins over the display's own change in the same clock, and also sets the pointer's saved line start |
+| BPLxPT, BPLSTRIDE | At once: they are live. BPLSTRIDE is used when the pointers are reset, about 3 pixels into the next line's horizontal blank: write it after `CWAIT line,8` or later for it to apply at the end of that line, since a write straight after `CWAIT line,0` can apply at the end of the line before. A copper write to a pointer wins over the display's own change in the same clock, and also sets the pointer's saved line start |
 | BPLxDAT | At once; a write of BPL0DAT completes a group for a layer with no DMA |
 | CTRL.EN, VSCALE, WINX, WINY, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during the visible part of line L − 1 |
 | CTRL.BPP, PLANAR, PLANES, HSCALE | From the layer's next group fetched: 16–32 source pixels after the beam |
