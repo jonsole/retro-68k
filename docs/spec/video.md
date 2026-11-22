@@ -4,7 +4,7 @@ Status: **v1 scope**
 
 ## 1. Goals
 
-- DVI output over the HDMI connector and, at the same time, 24-bit VGA through the KS3's ADV7125 video DAC.
+- HDMI output with the mixer's stereo sound (retro-hw `hdmi_packets`; plain DVI with VIDCON.DVI) and, at the same time, 24-bit VGA through the KS3's ADV7125 video DAC.
 - **One video mode: 576p**, 720×576 at 50 Hz, exactly as CEA-861 defines it (27 MHz), so every HDMI TV and monitor takes it. It is the digital form of PAL: a normal Amiga-style screen (for example 640×512, PAL 320×256 doubled) sits in a centred window, and overscan uses the whole 720×576. There are no timing registers.
 - **Three bitmap layers**, each with its own display window, scroll, scale and 256-colour palette. Each layer is **planar** (1 to 8 Amiga-style bitplanes) or **chunky** (1, 2, 4 or 8 bits per pixel).
 - **Amiga-style bitplane DMA:** each plane has a pointer (BPLxPT) that moves through memory as the picture is shown, a stride (BPLSTRIDE) from each line's start to the next, and a data register (BPLxDAT). The copper (or the CPU) resets the pointers every frame.
@@ -307,7 +307,7 @@ The offsets are within the custom register block at `0xE00000`. Spec 3 has the f
 
 | Offset | Name | Bits | Description |
 |--------|------|------|-------------|
-| `0x000` | VIDCON | EN (0), BLANKALL (2), DIRECT (4), SHAREPAL (5) | Video on; show the background colour only; direct colour; all layers and sprites use PALETTE0 (section 4.6) |
+| `0x000` | VIDCON | EN (0), BLANKALL (2), DIRECT (4), SHAREPAL (5), DVI (6) | Video on; show the background colour only; direct colour; all layers and sprites use PALETTE0 (section 4.6); the HDMI connector sends plain DVI, with no sound or InfoFrames, from the next frame (0 after reset: HDMI with sound, for a display that will not take HDMI) |
 | `0x004` | VIDSTAT | VBLANK (0), LINE (1), OVERRUN L0–L2 (6–4), SPRUNDER (7: a sprite's FIFO ran dry, spec 9), INVBLANK (8, read-only) | Sticky flags, write 1 to clear |
 | `0x008` | VIDINTEN | Same layout as VIDSTAT | Interrupt enables |
 | `0x00C` | BEAMPOS | `vline` 26–16, `hpixel` 10–0 | Read-only |
@@ -360,7 +360,7 @@ Entry i of palette p is at `0xE04000 + p × 0x400 + i × 4`. Bits 31–24 read a
 |---|------|
 | V1 | Check in Vivado that the clock-domain crossings are all covered (asynchronous clock groups) and the pixel pipeline meets timing |
 | V3 | Done: the layer fetch orders the layers' words by deadline (section 5.6). Since the generic scheduler, the layers go ahead of the sprites by number (spec 5, section 6.3) |
-| V2 | Plain DVI has no info packets. Add the HDMI AVI InfoFrame (576p, 4:3, "underscanned", IT content) so TVs neither crop the picture nor treat it as video; needs the HDMI data-island encoder (with HDMI audio, later) |
+| V2 | The HDMI output sends the AVI InfoFrame (RGB, full range, 4:3, underscanned, VIC 17) with the sound (retro-hw `hdmi_packets`). Still to see on real TVs: that they neither crop the picture nor shift its black and white levels |
 
 ## 9. Tests
 
@@ -377,4 +377,3 @@ Entry i of palette p is at `0xE04000 + p × 0x400 + i × 4`. Bits 31–24 read a
 - More modes (exact 640×480, 720p, 1024×768): a different pixel clock from MMCM 2, at build time or by reconfiguring it; the rest of the design is ready for it
 - Wide fetch (memory cycle 3 for the display)
 - EHB and HAM modes, tile-map layers
-- HDMI audio

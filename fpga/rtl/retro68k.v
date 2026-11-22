@@ -42,9 +42,12 @@ module retro68k #(
     // Video out (pixel clock domain)
     output wire [23:0] vid_rgb,
     output wire        vid_hsync, vid_vsync, vid_de,
+    output wire        vid_dvi,        // VIDCON.DVI (100 MHz)
 
     // Audio: sigma-delta streams (the jack's left and right, the speaker)
     output wire        aud_l, aud_r, aud_m,
+    output wire [15:0] snd_l, snd_r,   // the mixer's samples for HDMI (100 MHz), signed
+    output wire        snd_v,          // 1 clock every 2,083: take snd_l and snd_r (48.008 kHz)
 
     // SD card (spec 15) and PS/2 keyboard (spec 16)
     output wire        sd_sclk, sd_mosi, sd_cs0_n, sd_cs1_n,
@@ -306,7 +309,8 @@ module retro68k #(
         .disp_ack(disp_ack), .disp_rvalid(disp_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_addr(spr_addr),
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
-        .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
+        .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de),
+        .dvi(vid_dvi)
     );
 
     wire       blt_idle, blt_irq;      // the blitter and the rasteriser (below)
@@ -345,9 +349,14 @@ module retro68k #(
         .rb_rdata(rd_aud), .dmacon(dmacon),
         .mem_req(aud_req), .mem_addr(aud_addr), .mem_ack(aud_ack),
         .mem_rvalid(aud_rvalid), .mem_rdata(mem_rdata),
-        .irq(aud_irq), .out_l(), .out_r(), .tick_done(),
+        .irq(aud_irq), .out_l(snd_l), .out_r(snd_r), .tick_done(),
         .dac_l(aud_l), .dac_r(aud_r), .dac_m(aud_m)
     );
+    // HDMI takes the mixer's last sample at a fixed 48.008 kHz, whatever
+    // AUDRATE is (spec 6, A3), so its stream always matches its 48 kHz label
+    reg [11:0] snd_t = 12'd0;
+    always @(posedge clk100) snd_t <= (snd_t == 12'd2082) ? 12'd0 : snd_t + 1'b1;
+    assign snd_v = (snd_t == 12'd0);
 
     // ---------------------------------------------------------------- timers (spec 12)
     timers tmr (

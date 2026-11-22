@@ -29,6 +29,8 @@ VIDCON_DIRECT_B              equ $4
 VIDCON_DIRECT_M              equ $10
 VIDCON_SHAREPAL_B            equ $5
 VIDCON_SHAREPAL_M            equ $20
+VIDCON_DVI_B                 equ $6
+VIDCON_DVI_M                 equ $40
 VIDSTAT                      equ $4          ; RW1C, spec 4/6.1
 VIDSTAT_VBLANK_B             equ $0
 VIDSTAT_VBLANK_M             equ $1

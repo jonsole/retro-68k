@@ -64,7 +64,8 @@ module video (
     output reg  [23:0] rgb,
     output reg         hsync,
     output reg         vsync,
-    output reg         de
+    output reg         de,
+    output wire        dvi             // VIDCON.DVI: HDMI sends plain DVI (100 MHz; taken at a frame's start)
 );
     // ================================================================ the mode (section 3.2)
     // 576p50 (CEA-861 format 17/18): 864 x 625 at 27 MHz, both syncs active low
@@ -95,7 +96,7 @@ module video (
     wire sel_dat   = in_custom && (blk >= 9'd2) && (blk <= 9'd4) && (off[6:5] == 2'b10);   // BPL0DAT-BPL7DAT
     wire sel_pal   = in_custom && (off[15:12] == 4'h4);        // 0x4000-0x4FFF: PALETTE0-2, SPRPALETTE
 
-    reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
+    reg  [6:0]  vidcon;                // DVI (6), SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
     reg  [7:0]  vidstat;               // sticky flags; INVBLANK (bit 8) is live, below
     reg  [7:0]  vidinten;
     reg  [10:0] lc_v;                  // LINECMP
@@ -139,12 +140,13 @@ module video (
     reg  [1:0] ov_s [0:2];
     wire [2:0] ov_t;
     wire       fetch_en = vidcon[0] && dmacon[9] && dmacon[8];
+    assign     dvi      = vidcon[6];
     integer    i;
     reg [31:0] reg_q;
 
     always @(posedge clk) begin
         if (rst) begin
-            vidcon   <= 6'd0;
+            vidcon   <= 7'd0;
             vidstat  <= 8'd0;
             vidinten <= 8'd0;
             lc_v     <= 11'd0;
@@ -194,7 +196,7 @@ module video (
             if (rb_wr && sel_glob) begin : wglobal
                 reg [31:0] v;
                 case (off)
-                    `RM_VIDCON:   begin v = merge({26'd0, vidcon}, rb_wdata, rb_be); vidcon <= {v[5], v[4], 1'b0, v[2], 1'b0, v[0]}; end
+                    `RM_VIDCON:   begin v = merge({25'd0, vidcon}, rb_wdata, rb_be); vidcon <= {v[6], v[5], v[4], 1'b0, v[2], 1'b0, v[0]}; end
                     `RM_VIDSTAT:  if (rb_be[0]) vidstat <= vidstat & ~rb_wdata[7:0];
                     `RM_VIDINTEN: begin v = merge({24'd0, vidinten}, rb_wdata, rb_be); vidinten <= v[7:0] & 8'hF3; end
                     `RM_LINECMP:  begin v = merge({5'd0, lc_v, 16'd0}, rb_wdata, rb_be); lc_v <= v[26:16]; end
@@ -226,7 +228,7 @@ module video (
         endcase
         if (rb_rd && sel_pt)  reg_q <= {9'd0, ptr_rdata};
         if (rb_rd && sel_glob) case (off)
-            `RM_VIDCON:     reg_q <= {26'd0, vidcon};
+            `RM_VIDCON:     reg_q <= {25'd0, vidcon};
             `RM_VIDSTAT:    reg_q <= {23'd0, p_invblank, vidstat};
             `RM_VIDINTEN:   reg_q <= {24'd0, vidinten};
             `RM_BEAMPOS:    reg_q <= {5'd0, s_vc, 5'd0, s_hc};
